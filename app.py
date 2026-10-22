@@ -20,7 +20,10 @@ import json
 # This guarantees deterministic package imports on both local environments and Streamlit Cloud.
 ROOT_DIR = Path(__file__).resolve().parent
 root_str = str(ROOT_DIR)
-if sys.path[0] != root_str:
+
+# Remove any parent directory (such as /mount/src on Streamlit Cloud) to eliminate top-level 'src' namespace collision
+sys.path = [p for p in sys.path if Path(p).resolve() != ROOT_DIR.parent]
+if not sys.path or sys.path[0] != root_str:
     if root_str in sys.path:
         sys.path.remove(root_str)
     sys.path.insert(0, root_str)
@@ -32,10 +35,9 @@ if sys.path[0] != root_str:
 # so that Python imports the actual package defined in '<repo_name>/src/__init__.py'.
 if "src" in sys.modules:
     src_mod = sys.modules["src"]
-    src_path = getattr(src_mod, "__file__", None) or (
-        getattr(src_mod, "__path__", [""])[0] if getattr(src_mod, "__path__", None) else ""
-    )
-    if str(ROOT_DIR / "src") not in str(src_path):
+    src_file = getattr(src_mod, "__file__", None)
+    expected_src_init = (ROOT_DIR / "src" / "__init__.py").resolve()
+    if src_file is None or Path(src_file).resolve() != expected_src_init:
         del sys.modules["src"]
 
 import streamlit as st
