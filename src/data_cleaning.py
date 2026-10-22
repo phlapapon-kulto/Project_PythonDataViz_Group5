@@ -5,7 +5,7 @@ Handles spatial hierarchy, missing values, anomaly detection, and climate data h
 
 import pandas as pd
 import numpy as np
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Dict, Optional, Union
 
 # List of 4 main regional aggregate names in OAE data
 REGION_NAMES = ["ภาคเหนือ", "ภาคกลาง", "ภาคใต้", "ภาคตะวันออกเฉียงเหนือ"]
@@ -202,13 +202,120 @@ def clean_oae_farmgate_prices(df: pd.DataFrame) -> pd.DataFrame:
     return df.dropna(subset=["product", "year", "price_baht_per_ton"]).reset_index(drop=True)
 
 
-def clean_tmd_daily_agromet(raw_json: Dict[str, Any]) -> pd.DataFrame:
+def normalize_agromet_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize an agromet DataFrame by harmonizing column names and ensuring
+    standard meteorological columns exist.
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame(columns=[
+            "station_number", "station_name", "province", "latitude", "longitude",
+            "datetime", "temp_c", "max_temp_c", "min_temp_c", "relative_humidity_pct",
+            "rainfall_24h_mm", "rainfall_mm", "wind_speed_kmh", "wind_direction_deg",
+            "pressure_msl_hpa", "data_source", "data_source_type"
+        ])
+
+    df = df.copy()
+    col_map = {}
+    for col in df.columns:
+        norm_key = str(col).strip().lower()
+        if norm_key in ["wmostationnumber", "station_number", "stationnumber", "station_no"]:
+            col_map[col] = "station_number"
+        elif norm_key in ["stationnamethai", "station_name", "stationname", "station"]:
+            col_map[col] = "station_name"
+        elif norm_key in ["province", "prov_name", "changwat"]:
+            col_map[col] = "province"
+        elif norm_key in ["latitude", "lat"]:
+            col_map[col] = "latitude"
+        elif norm_key in ["longitude", "lon", "long"]:
+            col_map[col] = "longitude"
+        elif norm_key in ["datetime", "date_time", "obs_time", "time"]:
+            col_map[col] = "datetime"
+        elif norm_key in ["temperature", "temp_c", "temp", "temperature_c"]:
+            col_map[col] = "temp_c"
+        elif norm_key in ["maxtemperature", "max_temp_c", "max_temp", "temp_max"]:
+            col_map[col] = "max_temp_c"
+        elif norm_key in ["mintemperature", "min_temp_c", "min_temp", "temp_min"]:
+            col_map[col] = "min_temp_c"
+        elif norm_key in ["relativehumidity", "relative_humidity_pct", "rh", "humidity"]:
+            col_map[col] = "relative_humidity_pct"
+        elif norm_key in ["rainfall_24h_mm", "rain_24h", "rain_24h_mm", "rainfall_24h"]:
+            col_map[col] = "rainfall_24h_mm"
+        elif norm_key in ["rainfall", "rainfall_mm", "rain_mm", "rain"]:
+            col_map[col] = "rainfall_mm"
+        elif norm_key in ["windspeed", "wind_speed_kmh", "wind_speed", "wind_kmh"]:
+            col_map[col] = "wind_speed_kmh"
+        elif norm_key in ["winddirection", "wind_direction_deg", "wind_direction", "wind_dir"]:
+            col_map[col] = "wind_direction_deg"
+        elif norm_key in ["meansealevelpressure", "pressure_msl_hpa", "pressure", "mslp"]:
+            col_map[col] = "pressure_msl_hpa"
+        elif norm_key in ["data_source", "source"]:
+            col_map[col] = "data_source"
+        elif norm_key in ["data_source_type", "source_type"]:
+            col_map[col] = "data_source_type"
+
+    df = df.rename(columns=col_map)
+
+    if "province" in df.columns:
+        df["province"] = df["province"].apply(normalize_province_name)
+
+    # Ensure dual availability of rainfall column names (rainfall_24h_mm and rainfall_mm)
+    if "rainfall_24h_mm" in df.columns and "rainfall_mm" not in df.columns:
+        df["rainfall_mm"] = df["rainfall_24h_mm"]
+    elif "rainfall_mm" in df.columns and "rainfall_24h_mm" not in df.columns:
+        df["rainfall_24h_mm"] = df["rainfall_mm"]
+    elif "rainfall_24h_mm" not in df.columns and "rainfall_mm" not in df.columns:
+        df["rainfall_24h_mm"] = np.nan
+        df["rainfall_mm"] = np.nan
+
+    # Ensure wind_speed_kmh exists
+    if "wind_speed_kmh" not in df.columns:
+        df["wind_speed_kmh"] = np.nan
+
+    # Ensure source metadata
+    if "data_source" not in df.columns:
+        df["data_source"] = "TMD (กรมอุตุนิยมวิทยา)"
+    if "data_source_type" not in df.columns:
+        df["data_source_type"] = "tmd_daily_agromet_station"
+
+    return df
+
+
+def validate_agromet_schema(
+    df: pd.DataFrame,
+    required_cols: Optional[List[str]] = None
+) -> Tuple[bool, List[str]]:
+    """
+    Validate that an agromet DataFrame contains the expected schema.
+    Returns (is_valid, missing_columns).
+    """
+    if required_cols is None:
+        required_cols = [
+            "station_name", "province", "temp_c",
+            "relative_humidity_pct", "rainfall_24h_mm",
+            "wind_speed_kmh", "data_source"
+        ]
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return False, required_cols
+
+    missing = [c for c in required_cols if c not in df.columns]
+    return len(missing) == 0, missing
+
+
+def clean_tmd_daily_agromet(raw_input: Union[Dict[str, Any], pd.DataFrame]) -> pd.DataFrame:
     """
     Clean daily agricultural meteorology observations from TMD (Catalog c1-1-3-7).
-    Parses station records into a tabular structure with standard metrics.
+    Parses station records from raw JSON or DataFrame into a tabular structure with standard metrics.
+    Includes wind_speed_kmh, rainfall_24h_mm, and data_source metadata.
     """
+    if isinstance(raw_input, pd.DataFrame):
+        return normalize_agromet_dataframe(raw_input)
+
+    if not isinstance(raw_input, dict) or not raw_input:
+        return normalize_agromet_dataframe(pd.DataFrame())
+
     records = []
-    stns = raw_json.get("Stations", {})
+    stns = raw_input.get("Stations", {})
     stn_list = stns.get("Station", []) if isinstance(stns, dict) else []
 
     if isinstance(stn_list, dict):
@@ -217,9 +324,13 @@ def clean_tmd_daily_agromet(raw_json: Dict[str, Any]) -> pd.DataFrame:
     for item in stn_list:
         obs = item.get("Observation", {})
         prov = normalize_province_name(item.get("Province", ""))
+        rain_val = pd.to_numeric(obs.get("Rainfall"), errors="coerce")
+        wind_val = pd.to_numeric(obs.get("WindSpeed"), errors="coerce")
+
         records.append({
             "station_number": item.get("WmoStationNumber", ""),
             "station_name": item.get("StationNameThai", ""),
+            "station_name_en": item.get("StationNameEnglish", ""),
             "province": prov,
             "latitude": pd.to_numeric(item.get("Latitude"), errors="coerce"),
             "longitude": pd.to_numeric(item.get("Longitude"), errors="coerce"),
@@ -228,12 +339,17 @@ def clean_tmd_daily_agromet(raw_json: Dict[str, Any]) -> pd.DataFrame:
             "max_temp_c": pd.to_numeric(obs.get("MaxTemperature"), errors="coerce"),
             "min_temp_c": pd.to_numeric(obs.get("MinTemperature"), errors="coerce"),
             "relative_humidity_pct": pd.to_numeric(obs.get("RelativeHumidity"), errors="coerce"),
-            "rainfall_mm": pd.to_numeric(obs.get("Rainfall"), errors="coerce"),
+            "rainfall_24h_mm": rain_val,
+            "rainfall_mm": rain_val,
+            "wind_speed_kmh": wind_val,
+            "wind_direction_deg": pd.to_numeric(obs.get("WindDirection"), errors="coerce"),
+            "pressure_msl_hpa": pd.to_numeric(obs.get("MeanSeaLevelPressure"), errors="coerce"),
+            "data_source": "TMD (กรมอุตุนิยมวิทยา)",
             "data_source_type": "tmd_daily_agromet_station"
         })
 
     df = pd.DataFrame(records)
-    return df
+    return normalize_agromet_dataframe(df)
 
 
 

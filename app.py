@@ -68,6 +68,7 @@ from src.data_cleaning import (
     clean_ldd_soil_suitability_data,
     clean_oae_production_cost_data,
     clean_disaster_affected_data,
+    validate_agromet_schema,
     OFFICIAL_77_PROVINCES,
     COUNTRY_NAME,
     REGION_NAMES,
@@ -1000,11 +1001,80 @@ with tab2:
 
     else:
         st.markdown("#### 📡 ข้อมูลตรวจวัดจากสถานีอุตุนิยมวิทยาเพื่อการเกษตรรายวัน (TMD Daily Agromet)")
+        st.caption("แหล่งข้อมูล: กรมอุตุนิยมวิทยา (TMD Open Data API Catalog c1-1-3-7: WeatherTodayByAgro)")
+
         if df_agromet.empty:
             st.info("ไม่มีข้อมูลตรวจวัดสถานี TMD รายวันในขณะนี้")
         else:
+            # Schema Validation (Requirement 8)
+            is_valid, missing_cols = validate_agromet_schema(df_agromet)
+            if not is_valid:
+                st.warning(
+                    f"⚠️ ชุดข้อมูลสถานี TMD ขาดคอลัมน์: {', '.join(missing_cols)} "
+                    f"(แหล่งข้อมูล: กรมอุตุนิยมวิทยา TMD Open Data API Catalog c1-1-3-7)"
+                )
+
+            # Defensive projection of columns that exist in DataFrame
+            expected_cols = [
+                "station_name", "province", "temp_c", "relative_humidity_pct",
+                "rainfall_24h_mm", "wind_speed_kmh", "data_source"
+            ]
+            display_cols = [c for c in expected_cols if c in df_agromet.columns]
+
+            # Filter by selected province if filtered above
+            selected_prov = st.session_state.selected_province
+            if selected_prov != "ทั้งหมด" and "province" in df_agromet.columns:
+                df_prov_stn = df_agromet[df_agromet["province"] == selected_prov]
+                if not df_prov_stn.empty:
+                    df_target_display = df_prov_stn
+                    st.info(f"📍 แสดงผลข้อมูลสถานีตรวจวัดเฉพาะจังหวัด **{selected_prov}** (จำนวน {len(df_prov_stn)} สถานี)")
+                else:
+                    df_target_display = df_agromet
+                    st.info(
+                        f"📍 ไม่พบสถานีตรวจวัดการเกษตรเฉพาะในจังหวัด **{selected_prov}** "
+                        f"จึงแสดงข้อมูลสถานีเครือข่ายทั่วประเทศทั้งหมด ({len(df_agromet)} สถานี)"
+                    )
+            else:
+                df_target_display = df_agromet
+
+            # Display KPI summary metrics for meteorological indicators
+            col_st1, col_st2, col_st3, col_st4 = st.columns(4)
+            with col_st1:
+                st.metric("จำนวนสถานีในตาราง", f"{len(df_target_display):,} แห่ง")
+            with col_st2:
+                if "temp_c" in df_target_display.columns:
+                    avg_t = df_target_display["temp_c"].dropna().mean()
+                    st.metric("อุณหภูมิเฉลี่ย", f"{avg_t:.1f} °C" if pd.notna(avg_t) else "ไม่มีข้อมูล")
+                else:
+                    st.metric("อุณหภูมิเฉลี่ย", "ไม่มีข้อมูล")
+            with col_st3:
+                if "relative_humidity_pct" in df_target_display.columns:
+                    avg_rh = df_target_display["relative_humidity_pct"].dropna().mean()
+                    st.metric("ความชื้นสัมพัทธ์เฉลี่ย", f"{avg_rh:.0f}%" if pd.notna(avg_rh) else "ไม่มีข้อมูล")
+                else:
+                    st.metric("ความชื้นสัมพัทธ์เฉลี่ย", "ไม่มีข้อมูล")
+            with col_st4:
+                rain_col = "rainfall_24h_mm" if "rainfall_24h_mm" in df_target_display.columns else ("rainfall_mm" if "rainfall_mm" in df_target_display.columns else None)
+                if rain_col:
+                    stns_with_rain = df_target_display[df_target_display[rain_col] > 0]
+                    st.metric("สถานีที่มีฝนรอบ 24 ชม.", f"{len(stns_with_rain)} แห่ง")
+                else:
+                    st.metric("สถานีที่มีฝนรอบ 24 ชม.", "ไม่มีข้อมูล")
+
+            # Friendly column headers in Thai
+            th_rename = {
+                "station_name": "ชื่อสถานีตรวจวัด",
+                "province": "จังหวัด",
+                "temp_c": "อุณหภูมิ (°C)",
+                "relative_humidity_pct": "ความชื้นสัมพัทธ์ (%)",
+                "rainfall_24h_mm": "ฝน 24 ชม. (มม.)",
+                "rainfall_mm": "ฝน 24 ชม. (มม.)",
+                "wind_speed_kmh": "ความเร็วลม (กม./ชม.)",
+                "data_source": "แหล่งข้อมูล"
+            }
+
             st.dataframe(
-                df_agromet[["station_name", "province", "temp_c", "relative_humidity_pct", "rainfall_24h_mm", "wind_speed_kmh", "data_source"]],
+                df_target_display[display_cols].rename(columns=th_rename),
                 use_container_width=True
             )
 
@@ -1024,6 +1094,22 @@ with tab3:
         f"🔍 **ตัวแปรวิเคราะห์ปัจจุบัน:** ชนิดพืช = **{driver_crop}** | ปี พ.ศ. = **{driver_year}** | "
         f"จังหวัด = **{driver_prov}** (ซิงค์ตามตัวกรองหลักด้านบน)"
     )
+
+    # Local Agromet Context for the farmer if available
+    if not df_agromet.empty and "province" in df_agromet.columns and driver_prov != "ทั้งหมด":
+        prov_agromet = df_agromet[df_agromet["province"] == driver_prov]
+        if not prov_agromet.empty:
+            p_row = prov_agromet.iloc[0]
+            st.markdown(
+                f"<div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 13px; color: #166534;'>"
+                f"📡 <b>สภาพอากาศสถานีตรวจวัดการเกษตร ณ ปัจจุบัน ({p_row.get('station_name', driver_prov)}):</b> "
+                f"อุณหภูมิ <b>{p_row.get('temp_c', 'N/A')} °C</b> | "
+                f"ความชื้น <b>{p_row.get('relative_humidity_pct', 'N/A')}%</b> | "
+                f"ฝนรอบ 24 ชม. <b>{p_row.get('rainfall_24h_mm', 0.0):.1f} มม.</b> | "
+                f"ความเร็วลม <b>{p_row.get('wind_speed_kmh', 0.0):.1f} กม./ชม.</b>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
 
     # 1. Water & Irrigation
     st.markdown("#### 1. 💧 แหล่งน้ำและระบบชลประทาน (RID & OAE)")

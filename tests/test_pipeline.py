@@ -18,6 +18,7 @@ from src.data_cleaning import (
     ce_to_be, be_to_ce, normalize_province_name, clean_agriculture_data,
     clean_spatial_rain_data, clean_national_rain_data, clean_provincial_temp_data,
     clean_oae_farmgate_prices, clean_tmd_daily_agromet,
+    validate_agromet_schema, normalize_agromet_dataframe,
     OFFICIAL_77_PROVINCES, REGION_NAMES, COUNTRY_NAME
 )
 from src.feature_engineering import (
@@ -141,6 +142,75 @@ class TestDataCleaning:
         assert df.loc[0, "province"] == "กาญจนบุรี"
         assert df.loc[0, "max_temp_c"] == 36.0
         assert df.loc[0, "rainfall_mm"] == 0.0
+
+    def test_clean_tmd_daily_agromet_all_expected_columns(self):
+        sample_json = {
+            "Stations": {
+                "Station": [
+                    {
+                        "WmoStationNumber": "48304",
+                        "StationNameThai": "เชียงราย สกษ.",
+                        "Province": "เชียงราย",
+                        "Latitude": "19.87",
+                        "Longitude": "99.78",
+                        "Observation": {
+                            "DateTime": "2026-10-21 07:00:00",
+                            "Temperature": "22.2",
+                            "MaxTemperature": "34.0",
+                            "MinTemperature": "20.8",
+                            "RelativeHumidity": "98",
+                            "WindSpeed": "5",
+                            "Rainfall": "12.50"
+                        }
+                    }
+                ]
+            }
+        }
+        df = clean_tmd_daily_agromet(sample_json)
+        assert len(df) == 1
+        assert df.loc[0, "province"] == "เชียงราย"
+        assert df.loc[0, "rainfall_24h_mm"] == 12.50
+        assert df.loc[0, "rainfall_mm"] == 12.50
+        assert df.loc[0, "wind_speed_kmh"] == 5.0
+        assert df.loc[0, "temp_c"] == 22.2
+        assert df.loc[0, "relative_humidity_pct"] == 98.0
+        assert df.loc[0, "data_source"] == "TMD (กรมอุตุนิยมวิทยา)"
+        assert df.loc[0, "data_source_type"] == "tmd_daily_agromet_station"
+
+        # Validate schema passes
+        is_valid, missing = validate_agromet_schema(df)
+        assert is_valid is True
+        assert len(missing) == 0
+
+    def test_validate_agromet_schema_detects_missing(self):
+        incomplete_df = pd.DataFrame({
+            "station_name": ["สถานีทดสอบ"],
+            "province": ["เชียงใหม่"]
+        })
+        is_valid, missing = validate_agromet_schema(incomplete_df)
+        assert is_valid is False
+        assert "temp_c" in missing
+        assert "rainfall_24h_mm" in missing
+        assert "wind_speed_kmh" in missing
+
+    def test_normalize_agromet_dataframe_aliases(self):
+        raw_df = pd.DataFrame({
+            "stationname": ["สถานีทดสอบ"],
+            "changwat": ["ลำปาง"],
+            "temp": [25.0],
+            "humidity": [80.0],
+            "rain_24h": [10.0],
+            "wind_speed": [3.0]
+        })
+        norm = normalize_agromet_dataframe(raw_df)
+        assert norm.loc[0, "station_name"] == "สถานีทดสอบ"
+        assert norm.loc[0, "province"] == "ลำปาง"
+        assert norm.loc[0, "temp_c"] == 25.0
+        assert norm.loc[0, "relative_humidity_pct"] == 80.0
+        assert norm.loc[0, "rainfall_24h_mm"] == 10.0
+        assert norm.loc[0, "rainfall_mm"] == 10.0
+        assert norm.loc[0, "wind_speed_kmh"] == 3.0
+        assert norm.loc[0, "data_source"] == "TMD (กรมอุตุนิยมวิทยา)"
 
 
 class TestMathematicalFormulas:
