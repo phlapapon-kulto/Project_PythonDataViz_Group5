@@ -14,14 +14,27 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import json
 
-# Ensure repository root and src/ directory are at the head of sys.path.
-# This prevents Streamlit Community Cloud ImportError / ModuleNotFoundError
+# Ensure repository root is strictly prioritized at sys.path[0].
+# This guarantees deterministic package imports on both local environments and Streamlit Cloud.
 ROOT_DIR = Path(__file__).resolve().parent
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-SRC_DIR = ROOT_DIR / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(1, str(SRC_DIR))
+root_str = str(ROOT_DIR)
+if sys.path[0] != root_str:
+    if root_str in sys.path:
+        sys.path.remove(root_str)
+    sys.path.insert(0, root_str)
+
+# On Streamlit Community Cloud, repositories are mounted at /mount/src/<repo_name>.
+# Python's namespace package resolution can inadvertently bind top-level 'src'
+# to '/mount/src' instead of the repository's '<repo_name>/src'.
+# If 'src' exists in sys.modules and does not point to our repository package, purge it
+# so that Python imports the actual package defined in '<repo_name>/src/__init__.py'.
+if "src" in sys.modules:
+    src_mod = sys.modules["src"]
+    src_path = getattr(src_mod, "__file__", None) or (
+        getattr(src_mod, "__path__", [""])[0] if getattr(src_mod, "__path__", None) else ""
+    )
+    if str(ROOT_DIR / "src") not in str(src_path):
+        del sys.modules["src"]
 
 import streamlit as st
 import pandas as pd
@@ -29,184 +42,92 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# Robust import pattern supporting both package and flat search paths
-try:
-    from src.data_loader import (
-        load_agriculture_data,
-        load_spatial_rain_data,
-        load_national_rain_data,
-        load_provincial_temp_data,
-        load_oae_farmgate_prices,
-        load_tmd_daily_agromet,
-        load_thailand_geojson,
-        load_provincial_irrigation_data,
-        load_ldd_soil_suitability_data,
-        load_oae_production_cost_data,
-        load_disaster_affected_data
-    )
-except ImportError:
-    from data_loader import (
-        load_agriculture_data,
-        load_spatial_rain_data,
-        load_national_rain_data,
-        load_provincial_temp_data,
-        load_oae_farmgate_prices,
-        load_tmd_daily_agromet,
-        load_thailand_geojson,
-        load_provincial_irrigation_data,
-        load_ldd_soil_suitability_data,
-        load_oae_production_cost_data,
-        load_disaster_affected_data
-    )
+# Canonical package imports from src (unified import strategy without try/except fallbacks)
+from src.data_loader import (
+    load_agriculture_data,
+    load_spatial_rain_data,
+    load_national_rain_data,
+    load_provincial_temp_data,
+    load_oae_farmgate_prices,
+    load_tmd_daily_agromet,
+    load_thailand_geojson,
+    load_provincial_irrigation_data,
+    load_ldd_soil_suitability_data,
+    load_oae_production_cost_data,
+    load_disaster_affected_data
+)
 
-try:
-    from src.data_cleaning import (
-        clean_agriculture_data,
-        clean_spatial_rain_data,
-        clean_national_rain_data,
-        clean_provincial_temp_data,
-        clean_oae_farmgate_prices,
-        clean_tmd_daily_agromet,
-        clean_provincial_irrigation_data,
-        clean_ldd_soil_suitability_data,
-        clean_oae_production_cost_data,
-        clean_disaster_affected_data,
-        OFFICIAL_77_PROVINCES,
-        COUNTRY_NAME,
-        REGION_NAMES,
-        PROVINCE_TO_REGION,
-        REGION_TO_PROVINCES
-    )
-except ImportError:
-    from data_cleaning import (
-        clean_agriculture_data,
-        clean_spatial_rain_data,
-        clean_national_rain_data,
-        clean_provincial_temp_data,
-        clean_oae_farmgate_prices,
-        clean_tmd_daily_agromet,
-        clean_provincial_irrigation_data,
-        clean_ldd_soil_suitability_data,
-        clean_oae_production_cost_data,
-        clean_disaster_affected_data,
-        OFFICIAL_77_PROVINCES,
-        COUNTRY_NAME,
-        REGION_NAMES,
-        PROVINCE_TO_REGION,
-        REGION_TO_PROVINCES
-    )
+from src.data_cleaning import (
+    clean_agriculture_data,
+    clean_spatial_rain_data,
+    clean_national_rain_data,
+    clean_provincial_temp_data,
+    clean_oae_farmgate_prices,
+    clean_tmd_daily_agromet,
+    clean_provincial_irrigation_data,
+    clean_ldd_soil_suitability_data,
+    clean_oae_production_cost_data,
+    clean_disaster_affected_data,
+    OFFICIAL_77_PROVINCES,
+    COUNTRY_NAME,
+    REGION_NAMES,
+    PROVINCE_TO_REGION,
+    REGION_TO_PROVINCES
+)
 
-try:
-    from src.feature_engineering import (
-        calculate_weighted_yield,
-        calculate_aggregated_harvest_ratio,
-        calculate_unharvested_area,
-        aggregate_agricultural_kpis,
-        compute_yoy_dataframe,
-        compute_cv_summary
-    )
-except ImportError:
-    from feature_engineering import (
-        calculate_weighted_yield,
-        calculate_aggregated_harvest_ratio,
-        calculate_unharvested_area,
-        aggregate_agricultural_kpis,
-        compute_yoy_dataframe,
-        compute_cv_summary
-    )
+from src.feature_engineering import (
+    calculate_weighted_yield,
+    calculate_aggregated_harvest_ratio,
+    calculate_unharvested_area,
+    aggregate_agricultural_kpis,
+    compute_yoy_dataframe,
+    compute_cv_summary
+)
 
-try:
-    from src.analytics import (
-        join_climate_agriculture_nationwide,
-        calculate_bivariate_stats,
-        generate_climate_interpretation,
-        classify_area_yield_quadrants,
-        get_top_provinces,
-        get_top_crops,
-        calculate_farm_budget,
-        get_crop_calendar_guide,
-        join_irrigation_and_yield,
-        join_soil_suitability_and_yield,
-        join_disaster_and_yield,
-        analyze_growing_season_rainfall,
-        compare_production_cost_and_price,
-        calculate_enhanced_farm_profit
-    )
-except ImportError:
-    from analytics import (
-        join_climate_agriculture_nationwide,
-        calculate_bivariate_stats,
-        generate_climate_interpretation,
-        classify_area_yield_quadrants,
-        get_top_provinces,
-        get_top_crops,
-        calculate_farm_budget,
-        get_crop_calendar_guide,
-        join_irrigation_and_yield,
-        join_soil_suitability_and_yield,
-        join_disaster_and_yield,
-        analyze_growing_season_rainfall,
-        compare_production_cost_and_price,
-        calculate_enhanced_farm_profit
-    )
+from src.analytics import (
+    join_climate_agriculture_nationwide,
+    calculate_bivariate_stats,
+    generate_climate_interpretation,
+    classify_area_yield_quadrants,
+    get_top_provinces,
+    get_top_crops,
+    calculate_farm_budget,
+    get_crop_calendar_guide,
+    join_irrigation_and_yield,
+    join_soil_suitability_and_yield,
+    join_disaster_and_yield,
+    analyze_growing_season_rainfall,
+    compare_production_cost_and_price,
+    calculate_enhanced_farm_profit
+)
 
-try:
-    from src.visualizations import (
-        create_thailand_map,
-        create_ranking_bar_chart,
-        create_trend_line_chart,
-        create_bivariate_scatter_chart,
-        create_correlation_heatmap,
-        create_quadrant_scatter_chart,
-        create_yoy_bar_chart,
-        create_price_trend_chart,
-        create_cost_breakdown_pie,
-        create_scenario_bar_chart,
-        create_irrigation_vs_yield_chart,
-        create_soil_suitability_bar_chart,
-        create_cost_structure_breakdown_chart,
-        create_disaster_impact_chart,
-        create_seasonal_rain_vs_yield_chart,
-        create_cost_price_margin_chart,
-        COLOR_FOREST_DARK,
-        COLOR_FOREST_MED,
-        COLOR_SAGE,
-        COLOR_MINT,
-        COLOR_WARNING,
-        COLOR_DANGER,
-        COLOR_GOLD
-    )
-except ImportError:
-    from visualizations import (
-        create_thailand_map,
-        create_ranking_bar_chart,
-        create_trend_line_chart,
-        create_bivariate_scatter_chart,
-        create_correlation_heatmap,
-        create_quadrant_scatter_chart,
-        create_yoy_bar_chart,
-        create_price_trend_chart,
-        create_cost_breakdown_pie,
-        create_scenario_bar_chart,
-        create_irrigation_vs_yield_chart,
-        create_soil_suitability_bar_chart,
-        create_cost_structure_breakdown_chart,
-        create_disaster_impact_chart,
-        create_seasonal_rain_vs_yield_chart,
-        create_cost_price_margin_chart,
-        COLOR_FOREST_DARK,
-        COLOR_FOREST_MED,
-        COLOR_SAGE,
-        COLOR_MINT,
-        COLOR_WARNING,
-        COLOR_DANGER,
-        COLOR_GOLD
-    )
+from src.visualizations import (
+    create_thailand_map,
+    create_ranking_bar_chart,
+    create_trend_line_chart,
+    create_bivariate_scatter_chart,
+    create_correlation_heatmap,
+    create_quadrant_scatter_chart,
+    create_yoy_bar_chart,
+    create_price_trend_chart,
+    create_cost_breakdown_pie,
+    create_scenario_bar_chart,
+    create_irrigation_vs_yield_chart,
+    create_soil_suitability_bar_chart,
+    create_cost_structure_breakdown_chart,
+    create_disaster_impact_chart,
+    create_seasonal_rain_vs_yield_chart,
+    create_cost_price_margin_chart,
+    COLOR_FOREST_DARK,
+    COLOR_FOREST_MED,
+    COLOR_SAGE,
+    COLOR_MINT,
+    COLOR_WARNING,
+    COLOR_DANGER,
+    COLOR_GOLD
+)
 
-try:
-    from src.filters import init_session_state, reset_filters, apply_ag_filters
-except ImportError:
-    from filters import init_session_state, reset_filters, apply_ag_filters
+from src.filters import init_session_state, reset_filters, apply_ag_filters
 
 
 # ---------------------------------------------------------
