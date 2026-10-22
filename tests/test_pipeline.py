@@ -465,3 +465,193 @@ class TestEnhancedFeatures:
         mod = importlib.import_module("src.data_loader")
         assert hasattr(mod, "load_agriculture_data")
         assert hasattr(mod, "query_gistda_check_crop")
+
+
+class TestCropProductionDrivers:
+    """
+    Test suite for Crop Production Drivers (5 pillars: Water/Irrigation, Soil/LDD,
+    Technology/Costs, Disasters, and Farm Economics).
+    """
+
+    def test_load_and_clean_provincial_irrigation(self):
+        from src.data_loader import load_provincial_irrigation_data
+        from src.data_cleaning import clean_provincial_irrigation_data
+        raw = load_provincial_irrigation_data()
+        assert not raw.empty
+        assert "irrigation_area_rai" in raw.columns
+
+        cleaned = clean_provincial_irrigation_data(raw)
+        assert not cleaned.empty
+        assert "irrigation_ratio_pct" in cleaned.columns
+        assert (cleaned["irrigation_ratio_pct"] >= 0).all()
+        assert (cleaned["irrigation_ratio_pct"] <= 100).all()
+
+    def test_load_and_clean_ldd_soil_suitability(self):
+        from src.data_loader import load_ldd_soil_suitability_data
+        from src.data_cleaning import clean_ldd_soil_suitability_data
+        raw = load_ldd_soil_suitability_data()
+        assert not raw.empty
+        assert "suitable_high_s1_pct" in raw.columns
+
+        cleaned = clean_ldd_soil_suitability_data(raw)
+        assert not cleaned.empty
+        assert "suitable_total_s1_s2_pct" in cleaned.columns
+        assert (cleaned["suitable_total_s1_s2_pct"] >= 0).all()
+
+    def test_load_and_clean_oae_production_cost(self):
+        from src.data_loader import load_oae_production_cost_data
+        from src.data_cleaning import clean_oae_production_cost_data
+        raw = load_oae_production_cost_data()
+        assert not raw.empty
+        assert "total_cost_rai" in raw.columns
+
+        cleaned = clean_oae_production_cost_data(raw)
+        assert not cleaned.empty
+        assert (cleaned["total_cost_rai"] > 0).all()
+        assert (cleaned["mechanization_share_pct"] > 0).all()
+
+    def test_load_and_clean_disaster_affected_data(self):
+        from src.data_loader import load_disaster_affected_data
+        from src.data_cleaning import clean_disaster_affected_data
+        raw = load_disaster_affected_data()
+        assert not raw.empty
+        assert "total_disaster_area_rai" in raw.columns
+
+        cleaned = clean_disaster_affected_data(raw)
+        assert not cleaned.empty
+        assert (cleaned["total_disaster_area_rai"] >= 0).all()
+
+    def test_join_irrigation_and_yield(self):
+        from src.data_loader import load_agriculture_data, load_provincial_irrigation_data
+        from src.data_cleaning import clean_agriculture_data, clean_provincial_irrigation_data
+        from src.analytics import join_irrigation_and_yield
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        df_irrig = clean_provincial_irrigation_data(load_provincial_irrigation_data())
+
+        res = join_irrigation_and_yield(df_ag, df_irrig, crop="ข้าวนาปี", year=2562)
+        assert not res.empty
+        assert "yield_kg_rai" in res.columns
+        assert "irrigation_ratio_pct" in res.columns
+        assert (res["yield_kg_rai"] > 0).all()
+
+    def test_join_soil_suitability_and_yield(self):
+        from src.data_loader import load_agriculture_data, load_ldd_soil_suitability_data
+        from src.data_cleaning import clean_agriculture_data, clean_ldd_soil_suitability_data
+        from src.analytics import join_soil_suitability_and_yield
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        df_soil = clean_ldd_soil_suitability_data(load_ldd_soil_suitability_data())
+
+        res = join_soil_suitability_and_yield(df_ag, df_soil, crop="ข้าวนาปี", year=2562)
+        assert not res.empty
+        assert "yield_kg_rai" in res.columns
+        assert "suitable_high_s1_pct" in res.columns
+
+    def test_join_disaster_and_yield(self):
+        from src.data_loader import load_agriculture_data, load_disaster_affected_data
+        from src.data_cleaning import clean_agriculture_data, clean_disaster_affected_data
+        from src.analytics import join_disaster_and_yield
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        df_dis = clean_disaster_affected_data(load_disaster_affected_data())
+
+        res = join_disaster_and_yield(df_ag, df_dis, crop="ข้าวนาปี", year=2562)
+        assert not res.empty
+        assert "damage_ratio_pct" in res.columns
+        assert "harvest_ratio_pct" in res.columns
+
+    def test_analyze_growing_season_rainfall(self):
+        from src.data_loader import load_agriculture_data, load_spatial_rain_data
+        from src.data_cleaning import clean_agriculture_data, clean_spatial_rain_data
+        from src.analytics import analyze_growing_season_rainfall
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        raw_rain = load_spatial_rain_data()
+        df_rain_monthly, _ = clean_spatial_rain_data(raw_rain)
+
+        res = analyze_growing_season_rainfall(df_rain_monthly, df_ag, crop="ข้าวนาปี", year=2562)
+        assert not res.empty
+        assert "rain_growing_season_mm" in res.columns
+        assert "growing_rain_share_pct" in res.columns
+        assert (res["growing_rain_share_pct"] > 0).all()
+
+    def test_compare_production_cost_and_price(self):
+        from src.data_loader import load_oae_production_cost_data, load_oae_farmgate_prices
+        from src.data_cleaning import clean_oae_production_cost_data, clean_oae_farmgate_prices
+        from src.analytics import compare_production_cost_and_price
+        df_cost = clean_oae_production_cost_data(load_oae_production_cost_data())
+        df_prices = clean_oae_farmgate_prices(load_oae_farmgate_prices())
+
+        res = compare_production_cost_and_price(df_cost, df_prices, crop="ข้าวนาปี", year=2562)
+        assert res["has_data"] is True
+        assert res["total_cost_rai"] > 0
+        assert res["cost_per_kg"] > 0
+        assert res["avg_selling_price_kg"] > 0
+        assert "cost_breakdown" in res
+
+    def test_calculate_enhanced_farm_profit(self):
+        from src.analytics import calculate_enhanced_farm_profit
+        # 10 rai, 500 kg/rai = 5,000 kg. Price 12 Bt/kg = 60,000 Bt. Cost 4,000 Bt/rai = 40,000 Bt.
+        res = calculate_enhanced_farm_profit(
+            planted_area_rai=10.0,
+            yield_kg_rai=500.0,
+            selling_price_baht_kg=12.0,
+            cost_per_rai=4000.0,
+            is_user_cost=True,
+            benchmark_cost_rai=4400.0
+        )
+        assert res["total_yield_kg"] == 5000.0
+        assert res["total_revenue"] == 60000.0
+        assert res["total_cost"] == 40000.0
+        assert res["net_profit"] == 20000.0
+        assert res["cost_per_kg"] == 8.0
+        assert res["breakeven_price_kg"] == 8.0
+        assert res["breakeven_yield_kg_rai"] == pytest.approx(333.33, 0.01)
+        assert res["diff_cost_rai"] == -400.0
+        assert res["diff_cost_pct"] == pytest.approx(-9.09, 0.01)
+
+    def test_create_driver_visualizations(self):
+        from src.data_loader import (
+            load_agriculture_data, load_provincial_irrigation_data,
+            load_ldd_soil_suitability_data, load_disaster_affected_data,
+            load_oae_production_cost_data, load_oae_farmgate_prices, load_spatial_rain_data
+        )
+        from src.data_cleaning import (
+            clean_agriculture_data, clean_provincial_irrigation_data,
+            clean_ldd_soil_suitability_data, clean_disaster_affected_data,
+            clean_oae_production_cost_data, clean_oae_farmgate_prices, clean_spatial_rain_data
+        )
+        from src.analytics import (
+            join_irrigation_and_yield, analyze_growing_season_rainfall, compare_production_cost_and_price
+        )
+        from src.visualizations import (
+            create_irrigation_vs_yield_chart, create_soil_suitability_bar_chart,
+            create_cost_structure_breakdown_chart, create_disaster_impact_chart,
+            create_seasonal_rain_vs_yield_chart, create_cost_price_margin_chart
+        )
+
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        df_irrig = clean_provincial_irrigation_data(load_provincial_irrigation_data())
+        df_soil = clean_ldd_soil_suitability_data(load_ldd_soil_suitability_data())
+        df_dis = clean_disaster_affected_data(load_disaster_affected_data())
+        df_cost = clean_oae_production_cost_data(load_oae_production_cost_data())
+        df_price = clean_oae_farmgate_prices(load_oae_farmgate_prices())
+        df_rain_m, _ = clean_spatial_rain_data(load_spatial_rain_data())
+
+        df_irrig_y = join_irrigation_and_yield(df_ag, df_irrig, "ข้าวนาปี", 2562)
+        fig1 = create_irrigation_vs_yield_chart(df_irrig_y, "ข้าวนาปี", 2562)
+        assert fig1 is not None
+
+        fig2 = create_soil_suitability_bar_chart(df_soil, "ข้าวนาปี")
+        assert fig2 is not None
+
+        summary = compare_production_cost_and_price(df_cost, df_price, "ข้าวนาปี", 2562)
+        fig3 = create_cost_structure_breakdown_chart(summary["cost_breakdown"], "ข้าวนาปี", summary["total_cost_rai"], 2562)
+        assert fig3 is not None
+
+        fig4 = create_disaster_impact_chart(df_dis, 2562)
+        assert fig4 is not None
+
+        df_season = analyze_growing_season_rainfall(df_rain_m, df_ag, "ข้าวนาปี", 2562)
+        fig5 = create_seasonal_rain_vs_yield_chart(df_season, "ข้าวนาปี", 2562)
+        assert fig5 is not None
+
+        fig6 = create_cost_price_margin_chart(summary)
+        assert fig6 is not None

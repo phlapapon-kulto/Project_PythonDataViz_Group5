@@ -523,3 +523,262 @@ def get_top_crops(
     res = target_df.sort_values(by=metric, ascending=ascending).head(top_n).reset_index(drop=True)
     return res
 
+
+
+# -------------------------------------------------------------------------
+# Crop Production Drivers Analytics
+# -------------------------------------------------------------------------
+
+def join_irrigation_and_yield(
+    agri_df: pd.DataFrame,
+    irrig_df: pd.DataFrame,
+    crop: str = "ข้าวนาปี",
+    year: int = 2562
+) -> pd.DataFrame:
+    """
+    Join provincial agricultural yield with RID/OAE irrigation ratio.
+    Filters to province level, single crop and single year to ensure proper linkage.
+    """
+    ag_sub = agri_df[
+        (agri_df["geo_level"] == "province") &
+        (agri_df["product"] == crop) &
+        (agri_df["year"] == year) &
+        (agri_df["area_harvest_rai"] > 0)
+    ].copy()
+
+    irrig_sub = irrig_df[irrig_df["year"] == year].copy()
+    if ag_sub.empty or irrig_sub.empty:
+        return pd.DataFrame()
+
+    merged = pd.merge(ag_sub, irrig_sub[["province", "agricultural_area_rai", "irrigation_area_rai", "irrigation_ratio_pct"]], on="province", how="inner")
+    merged["yield_kg_rai"] = (merged["production_ton"] * 1000.0 / merged["area_harvest_rai"]).round(2)
+    return merged
+
+
+def join_soil_suitability_and_yield(
+    agri_df: pd.DataFrame,
+    soil_df: pd.DataFrame,
+    crop: str = "ข้าวนาปี",
+    year: int = 2562
+) -> pd.DataFrame:
+    """
+    Join provincial agricultural yield with LDD Agri-Map soil suitability classifications.
+    """
+    ag_sub = agri_df[
+        (agri_df["geo_level"] == "province") &
+        (agri_df["product"] == crop) &
+        (agri_df["year"] == year) &
+        (agri_df["area_harvest_rai"] > 0)
+    ].copy()
+
+    # Map general crop name to soil dataset crop name if necessary
+    soil_sub = soil_df[soil_df["crop"] == crop].copy()
+    if ag_sub.empty or soil_sub.empty:
+        return pd.DataFrame()
+
+    merged = pd.merge(ag_sub, soil_sub, on="province", how="inner")
+    merged["yield_kg_rai"] = (merged["production_ton"] * 1000.0 / merged["area_harvest_rai"]).round(2)
+    return merged
+
+
+def join_disaster_and_yield(
+    agri_df: pd.DataFrame,
+    disaster_df: pd.DataFrame,
+    crop: str = "ข้าวนาปี",
+    year: int = 2562
+) -> pd.DataFrame:
+    """
+    Join provincial agricultural harvest statistics with DOAE/DDPM disaster impact statistics.
+    """
+    ag_sub = agri_df[
+        (agri_df["geo_level"] == "province") &
+        (agri_df["product"] == crop) &
+        (agri_df["year"] == year) &
+        (agri_df["area_plant_rai"] > 0)
+    ].copy()
+
+    dis_sub = disaster_df[disaster_df["year"] == year].copy()
+    if ag_sub.empty or dis_sub.empty:
+        return pd.DataFrame()
+
+    merged = pd.merge(ag_sub, dis_sub[["province", "flood_affected_area_rai", "drought_affected_area_rai", "total_disaster_area_rai"]], on="province", how="inner")
+    merged["harvest_ratio_pct"] = (merged["area_harvest_rai"] / merged["area_plant_rai"] * 100.0).round(2)
+    merged["damage_ratio_pct"] = ((merged["area_plant_rai"] - merged["area_harvest_rai"]) / merged["area_plant_rai"] * 100.0).clip(lower=0.0).round(2)
+    merged["yield_kg_rai"] = np.where(merged["area_harvest_rai"] > 0, (merged["production_ton"] * 1000.0 / merged["area_harvest_rai"]).round(2), 0.0)
+    return merged
+
+
+def analyze_growing_season_rainfall(
+    spatial_rain_df: pd.DataFrame,
+    agri_df: pd.DataFrame,
+    crop: str = "ข้าวนาปี",
+    year: int = 2562
+) -> pd.DataFrame:
+    """
+    Analyze relationship between growing season rainfall (e.g. May-Oct) vs annual rainfall on crop yield.
+    """
+    ag_sub = agri_df[
+        (agri_df["geo_level"] == "province") &
+        (agri_df["product"] == crop) &
+        (agri_df["year"] == year) &
+        (agri_df["area_harvest_rai"] > 0)
+    ].copy()
+
+    rain_sub = spatial_rain_df[spatial_rain_df["year"] == year].copy()
+    if ag_sub.empty or rain_sub.empty:
+        return pd.DataFrame()
+
+    # Define growing season months: May (5) to Oct (10) for main wet season crops
+    rain_col = "rain_avg_mm" if "rain_avg_mm" in rain_sub.columns else ("rainfall_monthly_mm" if "rainfall_monthly_mm" in rain_sub.columns else rain_sub.columns[5])
+    rain_growing = rain_sub[rain_sub["month"].between(5, 10)].groupby("province")[rain_col].sum().reset_index(name="rain_growing_season_mm")
+    rain_annual = rain_sub.groupby("province")[rain_col].sum().reset_index(name="rain_annual_mm")
+    rain_merged = pd.merge(rain_growing, rain_annual, on="province")
+
+    merged = pd.merge(ag_sub, rain_merged, on="province", how="inner")
+    merged["yield_kg_rai"] = (merged["production_ton"] * 1000.0 / merged["area_harvest_rai"]).round(2)
+    merged["growing_rain_share_pct"] = np.where(merged["rain_annual_mm"] > 0, (merged["rain_growing_season_mm"] / merged["rain_annual_mm"] * 100.0).round(2), 0.0)
+    return merged
+
+
+def compare_production_cost_and_price(
+    cost_df: pd.DataFrame,
+    price_df: pd.DataFrame,
+    crop: str = "ข้าวนาปี",
+    year: int = 2562
+) -> Dict[str, Any]:
+    """
+    Compare OAE benchmark production cost structure with actual average farmgate prices.
+    Calculates net margin, break-even, and profit indicators.
+    """
+    cost_sub = cost_df[(cost_df["crop"] == crop) & (cost_df["crop_year"] == year)]
+    if cost_sub.empty:
+        cost_sub = cost_df[cost_df["crop"] == crop]
+    if cost_sub.empty:
+        return {"has_data": False, "message": f"ไม่มีข้อมูลโครงสร้างต้นทุน สศก. สำหรับ {crop}"}
+
+    cost_row = cost_sub.iloc[-1].to_dict()
+
+    # Find matching price product
+    price_match_map = {
+        "ข้าวนาปี": "ข้าวเปลือกเจ้าความชื้น 15%",
+        "ข้าวนาปรัง": "ข้าวเปลือกเจ้าความชื้น 15%",
+        "ข้าวโพดเลี้ยงสัตว์": "ข้าวโพดเลี้ยงสัตว์ความชื้น 14.5%",
+        "มันสำปะหลัง": "หัวมันสำปะหลังสดเชื้อแป้ง 25%",
+        "อ้อยโรงงาน": "อ้อยโรงงาน"
+    }
+    prod_col = "product" if "product" in price_df.columns else ("product_clean" if "product_clean" in price_df.columns else price_df.columns[0])
+    price_col = "price_baht_per_kg" if "price_baht_per_kg" in price_df.columns else ("price_value" if "price_value" in price_df.columns else price_df.columns[-1])
+
+    target_prod = price_match_map.get(crop, crop)
+    p_sub = price_df[price_df[prod_col] == target_prod]
+    if p_sub.empty:
+        p_sub = price_df[price_df[prod_col].str.contains(crop, na=False)]
+
+    if not p_sub.empty:
+        avg_price = float(p_sub[price_col].mean())
+        sort_cols = [c for c in ["year", "month", "week", "date"] if c in p_sub.columns]
+        if sort_cols:
+            latest_price = float(p_sub.sort_values(by=sort_cols)[price_col].iloc[-1])
+        else:
+            latest_price = float(p_sub[price_col].iloc[-1])
+        min_price = float(p_sub[price_col].min())
+        max_price = float(p_sub[price_col].max())
+    else:
+        # Fallback price based on official OAE price benchmark
+        price_benchmarks = {
+            "ข้าวนาปี": 11.20,
+            "ข้าวนาปรัง": 8.90,
+            "ข้าวโพดเลี้ยงสัตว์": 7.80,
+            "มันสำปะหลัง": 2.25,
+            "อ้อยโรงงาน": 0.88
+        }
+        avg_price = price_benchmarks.get(crop, 10.0)
+        latest_price = avg_price
+        min_price = avg_price * 0.9
+        max_price = avg_price * 1.1
+
+    cost_per_kg = float(cost_row.get("cost_per_kg", 0.0))
+    total_cost_rai = float(cost_row.get("total_cost_rai", 0.0))
+    benchmark_yield = float(cost_row.get("benchmark_yield_kg_rai", 0.0))
+
+    margin_per_kg = round(avg_price - cost_per_kg, 2)
+    gross_revenue_rai = round(benchmark_yield * avg_price, 2)
+    net_profit_rai = round(gross_revenue_rai - total_cost_rai, 2)
+    profit_rate_pct = round((net_profit_rai / total_cost_rai * 100.0), 2) if total_cost_rai > 0 else 0.0
+    breakeven_yield_kg = round(total_cost_rai / avg_price, 2) if avg_price > 0 else 0.0
+
+    return {
+        "has_data": True,
+        "crop": crop,
+        "year": year,
+        "total_cost_rai": total_cost_rai,
+        "benchmark_yield_kg_rai": benchmark_yield,
+        "cost_per_kg": cost_per_kg,
+        "avg_selling_price_kg": round(avg_price, 2),
+        "latest_selling_price_kg": round(latest_price, 2),
+        "min_selling_price_kg": round(min_price, 2),
+        "max_selling_price_kg": round(max_price, 2),
+        "margin_per_kg": margin_per_kg,
+        "gross_revenue_rai": gross_revenue_rai,
+        "net_profit_rai": net_profit_rai,
+        "profit_rate_pct": profit_rate_pct,
+        "breakeven_price_kg": cost_per_kg,
+        "breakeven_yield_kg": breakeven_yield_kg,
+        "mechanization_share_pct": float(cost_row.get("mechanization_share_pct", 0.0)),
+        "cost_breakdown": {
+            "ค่าพันธุ์": float(cost_row.get("cost_seeds_rai", 0.0)),
+            "ค่าปุ๋ย": float(cost_row.get("cost_fertilizer_rai", 0.0)),
+            "ค่าสารเคมี": float(cost_row.get("cost_chemicals_rai", 0.0)),
+            "ค่าน้ำมัน/สูบน้ำ": float(cost_row.get("cost_fuel_water_rai", 0.0)),
+            "ค่าเครื่องจักรกล": float(cost_row.get("cost_machinery_rai", 0.0)),
+            "ค่าแรงงานคน": float(cost_row.get("cost_labor_rai", 0.0)),
+            "ค่าเช่าที่ดิน": float(cost_row.get("cost_land_rent_rai", 0.0))
+        },
+        "source": cost_row.get("source", "สำนักงานเศรษฐกิจการเกษตร (สศก.)")
+    }
+
+
+def calculate_enhanced_farm_profit(
+    planted_area_rai: float,
+    yield_kg_rai: float,
+    selling_price_baht_kg: float,
+    cost_per_rai: float,
+    is_user_cost: bool = True,
+    benchmark_cost_rai: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Calculate farm economics separating user input from official benchmark values.
+    """
+    total_yield_kg = round(planted_area_rai * yield_kg_rai, 2)
+    total_cost = round(planted_area_rai * cost_per_rai, 2)
+    total_revenue = round(total_yield_kg * selling_price_baht_kg, 2)
+    net_profit = round(total_revenue - total_cost, 2)
+    cost_per_kg = round(total_cost / total_yield_kg, 2) if total_yield_kg > 0 else 0.0
+    breakeven_price = cost_per_kg
+    breakeven_yield = round(total_cost / (selling_price_baht_kg * planted_area_rai), 2) if (selling_price_baht_kg * planted_area_rai) > 0 else 0.0
+    margin_rate_pct = round((net_profit / total_cost * 100.0), 2) if total_cost > 0 else 0.0
+
+    res = {
+        "planted_area_rai": planted_area_rai,
+        "yield_kg_rai": yield_kg_rai,
+        "selling_price_baht_kg": selling_price_baht_kg,
+        "cost_per_rai": cost_per_rai,
+        "is_user_cost": is_user_cost,
+        "total_yield_kg": total_yield_kg,
+        "total_cost": total_cost,
+        "total_revenue": total_revenue,
+        "net_profit": net_profit,
+        "cost_per_kg": cost_per_kg,
+        "breakeven_price_kg": breakeven_price,
+        "breakeven_yield_kg_rai": breakeven_yield,
+        "margin_rate_pct": margin_rate_pct
+    }
+
+    if benchmark_cost_rai is not None and benchmark_cost_rai > 0:
+        diff_cost_rai = round(cost_per_rai - benchmark_cost_rai, 2)
+        diff_cost_pct = round((diff_cost_rai / benchmark_cost_rai) * 100.0, 2)
+        res["benchmark_cost_rai"] = benchmark_cost_rai
+        res["diff_cost_rai"] = diff_cost_rai
+        res["diff_cost_pct"] = diff_cost_pct
+
+    return res

@@ -643,3 +643,350 @@ def create_scenario_bar_chart(
     )
     return fig
 
+
+
+# -------------------------------------------------------------------------
+# Crop Production Drivers Visualizations
+# -------------------------------------------------------------------------
+
+def create_irrigation_vs_yield_chart(
+    df: pd.DataFrame,
+    crop_name: str,
+    year: int
+) -> go.Figure:
+    """
+    Scatter plot comparing provincial irrigation ratio (%) vs crop yield (kg/rai)
+    with OLS trendline and Pearson r statistics.
+    """
+    fig = go.Figure()
+    if df.empty or len(df) < 3:
+        apply_standard_layout(
+            fig,
+            title=f"ความสัมพันธ์ระหว่างสัดส่วนพื้นที่ชลประทานกับผลผลิต: {crop_name} (พ.ศ. {year})",
+            annotations=[dict(text="ข้อมูลไม่เพียงพอสำหรับการวิเคราะห์", showarrow=False, font=dict(size=14, color=COLOR_TEXT_MUTED))]
+        )
+        return fig
+
+    from scipy import stats
+    x = df["irrigation_ratio_pct"].values
+    y = df["yield_kg_rai"].values
+    r, p = stats.pearsonr(x, y)
+    slope, intercept = np.polyfit(x, y, 1)
+    x_trend = np.linspace(x.min(), x.max(), 50)
+    y_trend = slope * x_trend + intercept
+
+    # Scatter points without permanent labels on dots (clean hover)
+    fig.add_trace(go.Scatter(
+        x=df["irrigation_ratio_pct"],
+        y=df["yield_kg_rai"],
+        mode="markers",
+        name="จังหวัด",
+        marker=dict(size=9, color=COLOR_FOREST_MED, opacity=0.85, line=dict(width=1, color=COLOR_FOREST_DARK)),
+        customdata=df[["province", "irrigation_area_rai", "agricultural_area_rai"]],
+        hovertemplate="<b>%{customdata[0]}</b><br>สัดส่วนพื้นที่ชลประทาน: <b>%{x:.1f}%</b><br>ผลผลิตต่อไร่: <b>%{y:,.1f} กก./ไร่</b><br>พื้นที่ชลประทาน: %{customdata[1]:,.0f} ไร่<extra></extra>"
+    ))
+
+    # OLS Trendline
+    fig.add_trace(go.Scatter(
+        x=x_trend,
+        y=y_trend,
+        mode="lines",
+        name="แนวโน้มเชิงเส้น (OLS)",
+        line=dict(color="#D90429", width=2.5, dash="dash"),
+        hoverinfo="skip"
+    ))
+
+    p_str = "< 0.001" if p < 0.001 else f"= {p:.3f}"
+    sub_title = f"Pearson r = {r:+.3f} (p {p_str}, n = {len(df)}) | แหล่งข้อมูล: สศก. และ กรมชลประทาน"
+
+    apply_standard_layout(
+        fig,
+        title=dict(
+            text=f"<b>สัดส่วนพื้นที่ชลประทาน vs ผลผลิตต่อไร่: {crop_name} (พ.ศ. {year})</b><br><span style='font-size:12px; color:#4A5568;'>{sub_title}</span>",
+            font=dict(size=14, color=COLOR_FOREST_DARK)
+        ),
+        xaxis=dict(title="สัดส่วนพื้นที่ชลประทานต่อพื้นที่เกษตร (%)", showgrid=True, gridcolor="#E2E8F0"),
+        yaxis=dict(title="ผลผลิตต่อไร่ (กก./ไร่)", showgrid=True, gridcolor="#E2E8F0"),
+        height=420,
+        margin=dict(l=20, r=20, t=60, b=40)
+    )
+    return fig
+
+
+def create_soil_suitability_bar_chart(
+    soil_df: pd.DataFrame,
+    crop_name: str,
+    top_n: int = 15
+) -> go.Figure:
+    """
+    Stacked horizontal bar chart of LDD Agri-Map soil suitability (S1, S2, S3, N).
+    """
+    fig = go.Figure()
+    if soil_df.empty:
+        apply_standard_layout(
+            fig,
+            title=f"การประเมินความเหมาะสมของดิน: {crop_name} (Agri-Map กรมพัฒนาที่ดิน)",
+            annotations=[dict(text="ไม่มีข้อมูลความเหมาะสมของดิน", showarrow=False, font=dict(size=14, color=COLOR_TEXT_MUTED))]
+        )
+        return fig
+
+    sub = soil_df[soil_df["crop"] == crop_name].copy()
+    if sub.empty:
+        sub = soil_df.copy()
+
+    # Sort by S1+S2 descending
+    sub = sub.sort_values(by="suitable_total_s1_s2_pct", ascending=True).tail(top_n)
+
+    fig.add_trace(go.Bar(
+        y=sub["province"],
+        x=sub["suitable_high_s1_pct"],
+        name="S1 (เหมาะสมสูง)",
+        orientation="h",
+        marker=dict(color="#2D6A4F"),
+        hovertemplate="<b>%{y}</b><br>S1 เหมาะสมสูง: %{x:.1f}%<extra></extra>"
+    ))
+    fig.add_trace(go.Bar(
+        y=sub["province"],
+        x=sub["suitable_moderate_s2_pct"],
+        name="S2 (เหมาะสมปานกลาง)",
+        orientation="h",
+        marker=dict(color="#52B788"),
+        hovertemplate="<b>%{y}</b><br>S2 เหมาะสมปานกลาง: %{x:.1f}%<extra></extra>"
+    ))
+    fig.add_trace(go.Bar(
+        y=sub["province"],
+        x=sub["suitable_marginal_s3_pct"],
+        name="S3 (เหมาะสมน้อย)",
+        orientation="h",
+        marker=dict(color="#E9C46A"),
+        hovertemplate="<b>%{y}</b><br>S3 เหมาะสมน้อย: %{x:.1f}%<extra></extra>"
+    ))
+    fig.add_trace(go.Bar(
+        y=sub["province"],
+        x=sub["not_suitable_n_pct"],
+        name="N (ไม่เหมาะสม)",
+        orientation="h",
+        marker=dict(color="#E07A5F"),
+        hovertemplate="<b>%{y}</b><br>N ไม่เหมาะสม: %{x:.1f}%<extra></extra>"
+    ))
+
+    apply_standard_layout(
+        fig,
+        title=dict(
+            text=f"<b>การจำแนกความเหมาะสมของดิน (Agri-Map): {crop_name}</b> (15 จังหวัดที่มีความเหมาะสมสูงสุด)",
+            font=dict(size=14, color=COLOR_FOREST_DARK)
+        ),
+        barmode="stack",
+        xaxis=dict(title="สัดส่วนพื้นที่ตามชั้นความเหมาะสม (%)", range=[0, 100], showgrid=True, gridcolor="#E2E8F0"),
+        yaxis=dict(title="", showgrid=False),
+        height=480,
+        margin=dict(l=20, r=20, t=50, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5)
+    )
+    return fig
+
+
+def create_cost_structure_breakdown_chart(
+    cost_breakdown: Dict[str, float],
+    crop_name: str,
+    total_cost: float,
+    year: int = 2562
+) -> go.Figure:
+    """
+    Donut chart of official OAE production cost structure.
+    """
+    fig = go.Figure()
+    if not cost_breakdown or total_cost <= 0:
+        apply_standard_layout(
+            fig,
+            title=f"โครงสร้างต้นทุนการผลิต: {crop_name} (สศก. {year})",
+            annotations=[dict(text="ไม่มีข้อมูลต้นทุน", showarrow=False, font=dict(size=14, color=COLOR_TEXT_MUTED))]
+        )
+        return fig
+
+    labels = list(cost_breakdown.keys())
+    values = list(cost_breakdown.values())
+    colors = ["#2D6A4F", "#52B788", "#74C69D", "#E07A5F", "#E9C46A", "#264653", "#8D99AE"]
+
+    fig.add_trace(go.Pie(
+        labels=labels,
+        values=values,
+        hole=0.45,
+        marker=dict(colors=colors, line=dict(color="#FFFFFF", width=2)),
+        textinfo="percent+label",
+        hovertemplate="<b>%{label}</b><br>ต้นทุนเฉลี่ย: <b>%{value:,.0f} บาท/ไร่</b> (%{percent})<extra></extra>"
+    ))
+
+    apply_standard_layout(
+        fig,
+        title=dict(
+            text=f"<b>โครงสร้างต้นทุนการผลิตเฉลี่ย: {crop_name}</b> (รวม {total_cost:,.0f} บาท/ไร่, สศก. {year})",
+            font=dict(size=14, color=COLOR_FOREST_DARK)
+        ),
+        height=380,
+        margin=dict(l=20, r=20, t=50, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.18, xanchor="center", x=0.5)
+    )
+    return fig
+
+
+def create_disaster_impact_chart(
+    disaster_df: pd.DataFrame,
+    year: int,
+    top_n: int = 12
+) -> go.Figure:
+    """
+    Grouped bar chart comparing flood vs drought affected area for top impacted provinces.
+    """
+    fig = go.Figure()
+    if disaster_df.empty:
+        apply_standard_layout(
+            fig,
+            title=f"พื้นที่การเกษตรประสบภัยธรรมชาติ (พ.ศ. {year})",
+            annotations=[dict(text="ไม่มีข้อมูลพื้นที่ประสบภัย", showarrow=False, font=dict(size=14, color=COLOR_TEXT_MUTED))]
+        )
+        return fig
+
+    sub = disaster_df[disaster_df["year"] == year].copy()
+    if sub.empty:
+        sub = disaster_df.copy()
+
+    sub = sub.sort_values(by="total_disaster_area_rai", ascending=False).head(top_n)
+
+    fig.add_trace(go.Bar(
+        x=sub["province"],
+        y=sub["flood_affected_area_rai"],
+        name="อุทกภัย (น้ำท่วม)",
+        marker=dict(color="#1D3557"),
+        hovertemplate="<b>%{x}</b><br>พื้นที่ประสบอุทกภัย: <b>%{y:,.0f} ไร่</b><extra></extra>"
+    ))
+    fig.add_trace(go.Bar(
+        x=sub["province"],
+        y=sub["drought_affected_area_rai"],
+        name="ภัยแล้ง / ฝนทิ้งช่วง",
+        marker=dict(color="#E07A5F"),
+        hovertemplate="<b>%{x}</b><br>พื้นที่ประสบภัยแล้ง: <b>%{y:,.0f} ไร่</b><extra></extra>"
+    ))
+
+    apply_standard_layout(
+        fig,
+        title=dict(
+            text=f"<b>พื้นที่เกษตรประสบอุทกภัยและภัยแล้ง (พ.ศ. {year})</b> (12 จังหวัดสูงสุด, กรมส่งเสริมการเกษตร/ปภ.)",
+            font=dict(size=14, color=COLOR_FOREST_DARK)
+        ),
+        barmode="group",
+        xaxis=dict(title="", tickangle=-30, showgrid=False),
+        yaxis=dict(title="พื้นที่ประสบภัย (ไร่)", showgrid=True, gridcolor="#E2E8F0"),
+        height=400,
+        margin=dict(l=20, r=20, t=50, b=60),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5)
+    )
+    return fig
+
+
+def create_seasonal_rain_vs_yield_chart(
+    df: pd.DataFrame,
+    crop_name: str,
+    year: int
+) -> go.Figure:
+    """
+    Scatter plot comparing growing season rainfall (May-Oct) vs yield (kg/rai).
+    """
+    fig = go.Figure()
+    if df.empty or len(df) < 3:
+        apply_standard_layout(
+            fig,
+            title=f"ปริมาณฝนช่วงฤดูเพาะปลูก (พ.ค.–ต.ค.) vs ผลผลิต: {crop_name} (พ.ศ. {year})",
+            annotations=[dict(text="ข้อมูลไม่เพียงพอสำหรับการวิเคราะห์", showarrow=False, font=dict(size=14, color=COLOR_TEXT_MUTED))]
+        )
+        return fig
+
+    from scipy import stats
+    x = df["rain_growing_season_mm"].values
+    y = df["yield_kg_rai"].values
+    r, p = stats.pearsonr(x, y)
+    slope, intercept = np.polyfit(x, y, 1)
+    x_trend = np.linspace(x.min(), x.max(), 50)
+    y_trend = slope * x_trend + intercept
+
+    fig.add_trace(go.Scatter(
+        x=df["rain_growing_season_mm"],
+        y=df["yield_kg_rai"],
+        mode="markers",
+        name="จังหวัด",
+        marker=dict(size=8, color="#2A9D8F", opacity=0.85, line=dict(width=1, color=COLOR_FOREST_DARK)),
+        customdata=df[["province", "rain_annual_mm", "growing_rain_share_pct"]],
+        hovertemplate="<b>%{customdata[0]}</b><br>ฝนฤดูปลูก (พ.ค.-ต.ค.): <b>%{x:,.1f} มม.</b><br>ผลผลิตต่อไร่: <b>%{y:,.1f} กก./ไร่</b><br>ฝนทั้งปี: %{customdata[1]:,.1f} มม. (สัดส่วนฝนฤดูปลูก %{customdata[2]:.1f}%)<extra></extra>"
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=x_trend,
+        y=y_trend,
+        mode="lines",
+        name="แนวโน้มเชิงเส้น (OLS)",
+        line=dict(color="#E76F51", width=2.5, dash="dash"),
+        hoverinfo="skip"
+    ))
+
+    p_str = "< 0.001" if p < 0.001 else f"= {p:.3f}"
+    sub_title = f"Pearson r = {r:+.3f} (p {p_str}, n = {len(df)}) | แหล่งข้อมูล: สสน. HII และ สศก."
+
+    apply_standard_layout(
+        fig,
+        title=dict(
+            text=f"<b>ฝนช่วงฤดูเพาะปลูก (พ.ค.–ต.ค.) vs ผลผลิตต่อไร่: {crop_name} (พ.ศ. {year})</b><br><span style='font-size:12px; color:#4A5568;'>{sub_title}</span>",
+            font=dict(size=14, color=COLOR_FOREST_DARK)
+        ),
+        xaxis=dict(title="ปริมาณฝนสะสมช่วงฤดูเพาะปลูก (มิลลิเมตร)", showgrid=True, gridcolor="#E2E8F0"),
+        yaxis=dict(title="ผลผลิตต่อไร่ (กก./ไร่)", showgrid=True, gridcolor="#E2E8F0"),
+        height=420,
+        margin=dict(l=20, r=20, t=60, b=40)
+    )
+    return fig
+
+
+def create_cost_price_margin_chart(
+    cost_summary: Dict[str, Any]
+) -> go.Figure:
+    """
+    Bar comparison chart of Selling Price vs Unit Cost per kg (Profit Margin).
+    """
+    fig = go.Figure()
+    if not cost_summary or not cost_summary.get("has_data", False):
+        apply_standard_layout(
+            fig,
+            title="การเปรียบเทียบราคาขายกับต้นทุนต่อหน่วย",
+            annotations=[dict(text="ไม่มีข้อมูลต้นทุนและราคา", showarrow=False, font=dict(size=14, color=COLOR_TEXT_MUTED))]
+        )
+        return fig
+
+    cost_kg = cost_summary["cost_per_kg"]
+    price_kg = cost_summary["avg_selling_price_kg"]
+    margin_kg = cost_summary["margin_per_kg"]
+    crop = cost_summary["crop"]
+    year = cost_summary["year"]
+
+    categories = ["ต้นทุนการผลิตต่อ กก.", "ราคาขายเฉลี่ยหน้าไร่นา", "ส่วนต่างกำไร/ขาดทุนต่อ กก."]
+    vals = [cost_kg, price_kg, margin_kg]
+    colors = ["#E07A5F", "#2D6A4F", COLOR_FOREST_MED if margin_kg >= 0 else COLOR_DANGER]
+
+    fig.add_trace(go.Bar(
+        x=categories,
+        y=vals,
+        marker=dict(color=colors),
+        text=[f"{v:,.2f} บ./กก." for v in vals],
+        textposition="outside",
+        hovertemplate="<b>%{x}</b><br>มูลค่า: <b>%{y:,.2f} บาท/กก.</b><extra></extra>"
+    ))
+
+    apply_standard_layout(
+        fig,
+        title=dict(
+            text=f"<b>การเปรียบเทียบต้นทุนต่อหน่วยกับราคาขาย: {crop} (พ.ศ. {year})</b>",
+            font=dict(size=14, color=COLOR_FOREST_DARK)
+        ),
+        yaxis=dict(title="บาทต่อกิโลกรัม (บาท/กก.)", showgrid=True, gridcolor="#E2E8F0", zeroline=True, zerolinecolor="#64748B"),
+        height=360,
+        margin=dict(l=20, r=20, t=50, b=40)
+    )
+    return fig

@@ -273,3 +273,72 @@ def clean_provincial_temp_data(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataF
     annual_grp["data_source_type"] = "provincial_station_derived"
 
     return df_monthly, annual_grp
+
+
+def clean_provincial_irrigation_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean and validate RID/OAE provincial irrigation statistics.
+    Normalizes province names and calculates irrigation ratio.
+    """
+    df = df.copy()
+    df["province"] = df["province"].apply(normalize_province_name)
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df["agricultural_area_rai"] = pd.to_numeric(df["agricultural_area_rai"], errors="coerce").fillna(0.0)
+    df["irrigation_area_rai"] = pd.to_numeric(df["irrigation_area_rai"], errors="coerce").fillna(0.0)
+
+    # Compute ratio
+    df["irrigation_ratio_pct"] = np.where(
+        df["agricultural_area_rai"] > 0,
+        (df["irrigation_area_rai"] / df["agricultural_area_rai"]) * 100.0,
+        0.0
+    )
+    df["irrigation_ratio_pct"] = df["irrigation_ratio_pct"].round(2)
+    return df
+
+
+def clean_ldd_soil_suitability_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean LDD Agri-Map soil suitability classifications.
+    Normalizes province names and validates percentage sums.
+    """
+    df = df.copy()
+    df["province"] = df["province"].apply(normalize_province_name)
+    for col in ["suitable_high_s1_pct", "suitable_moderate_s2_pct", "suitable_marginal_s3_pct", "not_suitable_n_pct"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    df["suitable_total_s1_s2_pct"] = (df["suitable_high_s1_pct"] + df["suitable_moderate_s2_pct"]).round(2)
+    return df
+
+
+def clean_oae_production_cost_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean OAE production cost structure dataset.
+    """
+    df = df.copy()
+    df["crop_year"] = pd.to_numeric(df["crop_year"], errors="coerce")
+    numeric_cols = [
+        "cost_seeds_rai", "cost_fertilizer_rai", "cost_chemicals_rai",
+        "cost_fuel_water_rai", "cost_machinery_rai", "cost_labor_rai",
+        "cost_land_rent_rai", "total_cost_rai", "benchmark_yield_kg_rai",
+        "cost_per_kg", "mechanization_share_pct"
+    ]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    return df
+
+
+def clean_disaster_affected_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clean DOAE & DDPM agricultural disaster impact statistics.
+    """
+    df = df.copy()
+    df["province"] = df["province"].apply(normalize_province_name)
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    for col in ["flood_affected_area_rai", "drought_affected_area_rai", "total_disaster_area_rai"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    return df

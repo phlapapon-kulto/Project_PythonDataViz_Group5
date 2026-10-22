@@ -21,7 +21,7 @@
    - **TAB 4: ผู้ช่วยวางแผนเพาะปลูก (Crop Planning Assistant)**
    - **TAB 5: ตลาดและเครื่องคำนวณฟาร์ม (Market & Farm Calculator)**
 4. **ความน่าเชื่อถือและการทดสอบ:**
-   - ชุดทดสอบ Unit Tests อัตโนมัติ 34 การทดสอบ ครอบคลุม 100% (ผ่านครบ 34/34)
+   - ชุดทดสอบ Unit Tests อัตโนมัติ 45 การทดสอบ ครอบคลุม 100% (ผ่านครบ 45/45)
    - ผ่านการทดสอบรันแอปพลิเคชัน Streamlit แบบ Headless AppTest โดยไม่มีข้อผิดพลาด
 
 ---
@@ -72,6 +72,14 @@
   - Donut Chart สัดส่วนโครงสร้างต้นทุน
   - What-if Sensitivity Scenarios Bar Chart (จำลองสถานการณ์ราคาและผลผลิตผันผวน -20% ถึง +20%)
   - การให้คำแนะนำตัดสินใจตามส่วนต่างความปลอดภัยของกำไร (Safety Margin)
+### 🚜 TAB 6: ปัจจัยขับเคลื่อนผลผลิต (Crop Production Drivers)
+- **5 เสาหลักแห่งผลิตภาพทางการเกษตร:**
+  1. น้ำ ฝน และระบบชลประทาน (สถิติชลประทาน กรมชลประทาน/สศก. และฝนฤดูเพาะปลูก HII)
+  2. ดินและความเหมาะสมของพื้นที่ (Agri-Map กรมพัฒนาที่ดิน S1, S2, S3, N)
+  3. เทคโนโลยีและโครงสร้างต้นทุนปัจจัยการผลิต (สถิติต้นทุนและการใช้เครื่องจักร สศก.)
+  4. โรค แมลง ภัยแล้ง และอุทกภัย (พื้นที่ประสบภัยพิบัติ DOAE & DDPM)
+  5. กลไกราคา ต้นทุน และเศรษฐศาสตร์ฟาร์ม (Price-Cost Margin & Interactive Calculator แยกค่าเกษตรกรกับเกณฑ์ภาครัฐ)
+- **การทดสอบความถูกต้อง:** ชุดทดสอบ `TestCropProductionDrivers` ครอบคลุมทุกฟังก์ชันการโหลดข้อมูล ทำความสะอาด วิเคราะห์ และพล็อต ทั้ง 11 การทดสอบใหม่ผ่าน 100%
 
 ---
 
@@ -133,7 +141,7 @@ tests/test_pipeline.py::TestEnhancedFeatures::test_src_package_structure PASSED 
 tests/test_pipeline.py::TestEnhancedFeatures::test_data_loader_all_symbols PASSED [ 97%]
 tests/test_pipeline.py::TestEnhancedFeatures::test_streamlit_cloud_import_resilience PASSED [100%]
 
-============================= 34 passed in 4.05s ==============================
+============================= 45 passed in 6.33s ==============================
 ```
 
 ---

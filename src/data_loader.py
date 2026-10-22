@@ -287,3 +287,59 @@ def load_thailand_geojson(filepath: Optional[str] = None) -> Dict[str, Any]:
         geojson_data = json.load(f)
 
     return geojson_data
+
+
+def load_provincial_irrigation_data(filepath: Optional[str] = None) -> pd.DataFrame:
+    """
+    Load official provincial irrigation area data (RID & OAE 2561-2562).
+    """
+    if filepath is None:
+        root = get_project_root()
+        filepath = os.path.join(root, "data", "raw", "provincial_irrigation_rid_oae.csv")
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Provincial irrigation file not found at: {filepath}")
+
+    return pd.read_csv(filepath, encoding="utf-8-sig")
+
+
+def load_ldd_soil_suitability_data(filepath: Optional[str] = None) -> pd.DataFrame:
+    """
+    Load Land Development Department (LDD) Agri-Map soil suitability classifications.
+    """
+    if filepath is None:
+        root = get_project_root()
+        filepath = os.path.join(root, "data", "raw", "ldd_soil_suitability.csv")
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Soil suitability file not found at: {filepath}")
+
+    return pd.read_csv(filepath, encoding="utf-8-sig")
+
+
+def load_oae_production_cost_data(filepath: Optional[str] = None) -> pd.DataFrame:
+    """
+    Load official OAE production cost structure and mechanization statistics (2561-2562).
+    """
+    if filepath is None:
+        root = get_project_root()
+        filepath = os.path.join(root, "data", "raw", "oae_production_cost_structure.csv")
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Production cost structure file not found at: {filepath}")
+
+    return pd.read_csv(filepath, encoding="utf-8-sig")
+
+
+def load_disaster_affected_data(filepath: Optional[str] = None) -> pd.DataFrame:
+    """
+    Load DOAE & DDPM agricultural disaster impact statistics (2561-2562).
+    """
+    if filepath is None:
+        root = get_project_root()
+        filepath = os.path.join(root, "data", "raw", "disaster_affected_agricultural_area.csv")
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Disaster affected area file not found at: {filepath}")
+
+    return pd.read_csv(filepath, encoding="utf-8-sig")
