@@ -3,9 +3,11 @@ Data cleaning and preprocessing module for Thai Agriculture & Climate Intelligen
 Handles spatial hierarchy, missing values, anomaly detection, and climate data harmonization.
 """
 
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
-from typing import Tuple, List, Dict, Optional, Union
+from typing import Tuple, List, Dict, Optional, Union, Any
 
 # List of 4 main regional aggregate names in OAE data
 REGION_NAMES = ["ภาคเหนือ", "ภาคกลาง", "ภาคใต้", "ภาคตะวันออกเฉียงเหนือ"]
