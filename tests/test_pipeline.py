@@ -820,3 +820,137 @@ class TestRedesignedDashboard:
         app_path = os.path.join(get_project_root(), "app.py")
         at = AppTest.from_file(app_path, default_timeout=30).run()
         assert len(at.exception) == 0, f"App execution raised exceptions: {[e.value for e in at.exception]}"
+
+
+class TestDecisionIntelligenceAndMapLayers:
+    """
+    Test suite for Decision Intelligence functions (Tab 2, Tab 3, Tab 4) and
+    dedicated Thailand Maps for each of the 4 tabs.
+    """
+    def test_calculate_climate_risk_status(self):
+        from src.analytics import calculate_climate_risk_status
+
+        # Test high drought risk (low rain)
+        status_drought = calculate_climate_risk_status(rain_val=800.0, temp_val=33.0, disaster_val=5000.0)
+        assert status_drought["drought"]["color"] == "red"
+        assert "สูง" in status_drought["drought"]["level"]
+
+        # Test normal rain
+        status_normal = calculate_climate_risk_status(rain_val=1500.0, temp_val=28.0, disaster_val=0.0)
+        assert status_normal["drought"]["color"] == "green"
+        assert status_normal["flood"]["color"] == "green"
+        assert status_normal["heat"]["color"] == "green"
+
+        # Test high flood risk (large disaster area)
+        status_flood = calculate_climate_risk_status(rain_val=1900.0, temp_val=31.0, disaster_val=60000.0)
+        assert status_flood["flood"]["color"] == "red"
+
+        # Test extreme heat
+        status_heat = calculate_climate_risk_status(rain_val=1300.0, temp_val=36.0, disaster_val=1000.0)
+        assert status_heat["heat"]["color"] == "red"
+
+    def test_generate_farmer_decision_advisory_structure(self):
+        from src.analytics import generate_farmer_decision_advisory
+
+        advisory = generate_farmer_decision_advisory(
+            crop_name="ข้าวนาปี",
+            province_name="สุพรรณบุรี",
+            rainfall_val=1250.0,
+            temp_val=29.5,
+            disaster_val=8500.0,
+            year=2562
+        )
+
+        # Verify 5 mandatory decision dimensions
+        assert "current_situation" in advisory
+        assert "risks_to_watch" in advisory and len(advisory["risks_to_watch"]) > 0
+        assert "preparations_needed" in advisory and len(advisory["preparations_needed"]) > 0
+        assert "recommended_practices" in advisory and len(advisory["recommended_practices"]) > 0
+        assert "signals_to_monitor" in advisory and len(advisory["signals_to_monitor"]) > 0
+
+        # Verify planting window guide and disclaimers
+        assert "planting_window" in advisory
+        assert "source_agency" in advisory
+        assert "disclaimer" in advisory
+        assert advisory["crop_name"] == "ข้าวนาปี"
+        assert advisory["province_name"] == "สุพรรณบุรี"
+
+    def test_compute_price_summary_metrics(self):
+        from src.analytics import compute_price_summary_metrics
+        from src.data_loader import load_oae_farmgate_prices
+        from src.data_cleaning import clean_oae_farmgate_prices
+
+        df_prices = clean_oae_farmgate_prices(load_oae_farmgate_prices())
+        metrics = compute_price_summary_metrics(df_prices, "ข้าวเปลือกเจ้าหอมมะลิ")
+
+        assert metrics["has_data"] is True
+        assert metrics["product"] == "ข้าวเปลือกเจ้าหอมมะลิ"
+        assert metrics["latest_price"] > 0
+        assert metrics["min_price"] <= metrics["mean_price"] <= metrics["max_price"]
+        assert "unit" in metrics
+        assert "wow_change" in metrics
+        assert "mom_change" in metrics
+        assert "latest_period" in metrics
+
+        # Test partial matching fallback (e.g. 'มันสำปะหลัง')
+        metrics_partial = compute_price_summary_metrics(df_prices, "มันสำปะหลัง")
+        assert metrics_partial["has_data"] is True
+        assert "มันสำปะหลัง" in metrics_partial["product"]
+
+    def test_all_tab_maps_generation(self):
+        from src.data_loader import (
+            load_agriculture_data, load_spatial_rain_data, load_provincial_temp_data,
+            load_provincial_irrigation_data, load_ldd_soil_suitability_data,
+            load_disaster_affected_data, load_tmd_daily_agromet, load_thailand_geojson
+        )
+        from src.data_cleaning import (
+            clean_agriculture_data, clean_spatial_rain_data, clean_provincial_temp_data,
+            clean_provincial_irrigation_data, clean_ldd_soil_suitability_data,
+            clean_disaster_affected_data, clean_tmd_daily_agromet
+        )
+        from src.visualizations import (
+            create_thailand_map, create_climate_disaster_map,
+            create_market_price_map, create_production_driver_map
+        )
+
+        geojson_data = load_thailand_geojson()
+        assert geojson_data is not None
+
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        _, df_rain = clean_spatial_rain_data(load_spatial_rain_data())
+        _, df_temp = clean_provincial_temp_data(load_provincial_temp_data())
+        df_irrig = clean_provincial_irrigation_data(load_provincial_irrigation_data())
+        df_soil = clean_ldd_soil_suitability_data(load_ldd_soil_suitability_data())
+        df_disaster = clean_disaster_affected_data(load_disaster_affected_data())
+        df_agromet = clean_tmd_daily_agromet(load_tmd_daily_agromet())
+
+        # 1. Tab 1 Map: Agriculture Overview
+        fig1 = create_thailand_map(
+            df_data=df_ag[df_ag["year"] == 2562],
+            geojson_data=geojson_data,
+            metric_col="production_ton",
+            metric_label="ปริมาณผลผลิตรวม",
+            unit="ตัน",
+            year=2562,
+            product_name="ข้าวนาปี"
+        )
+        assert len(fig1.data) >= 1
+
+        # 2. Tab 2 Map: Climate & Disaster Layers
+        fig2_rain = create_climate_disaster_map(df_rain, df_temp, df_disaster, df_agromet, geojson_data, layer_type="rain", year=2562)
+        assert len(fig2_rain.data) >= 1
+
+        fig2_stn = create_climate_disaster_map(df_rain, df_temp, df_disaster, df_agromet, geojson_data, layer_type="stations", year=2562)
+        assert len(fig2_stn.data) >= 2  # Choropleth + Scattergeo
+
+        # 3. Tab 3 Map: Market Price / Production Volume
+        fig3 = create_market_price_map(df_ag, geojson_data, crop_name="ข้าวนาปี", year=2562)
+        assert len(fig3.data) >= 1
+
+        # 4. Tab 4 Map: Production Drivers
+        fig4_yield = create_production_driver_map(df_ag, df_irrig, df_soil, df_disaster, geojson_data, layer_type="yield", crop_name="ข้าวนาปี", year=2562)
+        assert len(fig4_yield.data) >= 1
+
+        fig4_irrig = create_production_driver_map(df_ag, df_irrig, df_soil, df_disaster, geojson_data, layer_type="irrigation", crop_name="ข้าวนาปี", year=2562)
+        assert len(fig4_irrig.data) >= 1
+

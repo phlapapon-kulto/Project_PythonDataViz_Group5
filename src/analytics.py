@@ -4,6 +4,8 @@ Implements correlation analysis, statistical tests, quadrant classification,
 ranking algorithms, and automated data-driven interpretation generation.
 """
 
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
 from scipy import stats
@@ -782,3 +784,236 @@ def calculate_enhanced_farm_profit(
         res["diff_cost_pct"] = diff_cost_pct
 
     return res
+
+
+def calculate_climate_risk_status(
+    rain_val: Optional[float] = None,
+    temp_val: Optional[float] = None,
+    disaster_val: Optional[float] = None,
+    normal_rain: float = 1350.0
+) -> Dict[str, Any]:
+    """
+    Evaluate agricultural climate risk status (Drought, Flood, Heat/Dry spell)
+    based on verified empirical meteorological thresholds.
+    """
+    # 1. Drought risk
+    if rain_val is not None and not np.isnan(rain_val):
+        rain_ratio = rain_val / normal_rain
+        if rain_ratio < 0.70:
+            drought_risk = "สูง (High Risk)"
+            drought_color = "red"
+            drought_desc = f"ปริมาณฝนสะสมต่ำกว่าเกณฑ์ปกติมาก ({rain_ratio*100:.1f}% ของเกณฑ์มาตรฐาน)"
+        elif rain_ratio < 0.85:
+            drought_risk = "เฝ้าระวัง (Moderate Watch)"
+            drought_color = "orange"
+            drought_desc = f"ปริมาณฝนสะสมต่ำกว่าเกณฑ์ปกติเล็กน้อย ({rain_ratio*100:.1f}% ของเกณฑ์มาตรฐาน)"
+        else:
+            drought_risk = "ปกติ (Normal)"
+            drought_color = "green"
+            drought_desc = f"ปริมาณฝนสะสมอยู่ในเกณฑ์ปกติ ({rain_ratio*100:.1f}% ของเกณฑ์มาตรฐาน)"
+    else:
+        drought_risk = "ไม่มีข้อมูลตรวจวัดเฉพาะจุด"
+        drought_color = "gray"
+        drought_desc = "รอข้อมูลตรวจวัดเพิ่มเติมจากสถานีอุตุนิยมวิทยา"
+
+    # 2. Flood / Waterlogging risk
+    if disaster_val is not None and not np.isnan(disaster_val) and disaster_val > 50000:
+        flood_risk = "สูง (High Risk)"
+        flood_color = "red"
+        flood_desc = f"มีพื้นที่ประสบภัยธรรมชาติสะสม {disaster_val:,.0f} ไร่ ควรเร่งขุดลอกทางระบายน้ำ"
+    elif disaster_val is not None and not np.isnan(disaster_val) and disaster_val > 10000:
+        flood_risk = "เฝ้าระวัง (Moderate Watch)"
+        flood_color = "orange"
+        flood_desc = f"มีพื้นที่ได้รับผลกระทบสะสม {disaster_val:,.0f} ไร่ เฝ้าระวังน้ำท่วมขังแปลงเกษตร"
+    elif rain_val is not None and not np.isnan(rain_val) and rain_val > 1800.0:
+        flood_risk = "เฝ้าระวังฝนตกหนักสะสม"
+        flood_color = "orange"
+        flood_desc = f"ปริมาณฝนสะสมสูงถึง {rain_val:,.1f} มม. อาจเกิดน้ำหลากในพื้นที่ลุ่ม"
+    else:
+        flood_risk = "ปกติ (Normal)"
+        flood_color = "green"
+        flood_desc = "ไม่พบรายงานพื้นที่ประสบภัยพิบัติรุนแรงในรอบปี"
+
+    # 3. Temperature / Heat stress risk
+    if temp_val is not None and not np.isnan(temp_val):
+        if temp_val >= 35.0:
+            heat_risk = "เฝ้าระวังความร้อนสูง (Heat Stress)"
+            heat_color = "red"
+            heat_desc = f"อุณหภูมิเฉลี่ยสูงถึง {temp_val:.1f} °C อาจส่งผลให้พืชคายน้ำสูงและเกสรข้าวเป็นหมัน"
+        elif temp_val >= 32.0:
+            heat_risk = "ปกติ-ค่อนข้างอบอุ่น"
+            heat_color = "orange"
+            heat_desc = f"อุณหภูมิเฉลี่ย {temp_val:.1f} °C เหมาะสมกับการเจริญเติบโตของพืชเขตร้อน"
+        else:
+            heat_risk = "ปกติ (Normal)"
+            heat_color = "green"
+            heat_desc = f"อุณหภูมิเฉลี่ย {temp_val:.1f} °C อยู่ในเกณฑ์เหมาะสม"
+    else:
+        heat_risk = "ไม่มีข้อมูลอุณหภูมิ"
+        heat_color = "gray"
+        heat_desc = "รอข้อมูลตรวจวัดอุณหภูมิเพิ่มเติม"
+
+    return {
+        "drought": {"level": drought_risk, "color": drought_color, "desc": drought_desc},
+        "flood": {"level": flood_risk, "color": flood_color, "desc": flood_desc},
+        "heat": {"level": heat_risk, "color": heat_color, "desc": heat_desc}
+    }
+
+
+def generate_farmer_decision_advisory(
+    crop_name: str,
+    province_name: str,
+    rainfall_val: Optional[float] = None,
+    temp_val: Optional[float] = None,
+    disaster_val: Optional[float] = None,
+    agromet_row: Optional[Dict[str, Any]] = None,
+    year: int = 2562
+) -> Dict[str, Any]:
+    """
+    Generate evidence-based actionable decision advisory for Thai farmers across 5 mandatory dimensions:
+    1. สถานการณ์ปัจจุบัน (Current situation)
+    2. ความเสี่ยงที่ต้องเฝ้าระวัง (Risks to watch)
+    3. สิ่งที่ควรเตรียมตัว (Preparations needed)
+    4. การปฏิบัติที่แนะนำ (Recommended practices)
+    5. เงื่อนไขหรือสัญญาณที่ควรติดตามเพิ่มเติม (Signals to monitor)
+    Along with official crop calendar planting window guidelines.
+    """
+    cal_guide = get_crop_calendar_guide(crop_name)
+    crop_source = cal_guide.get("source_agency", "กรมวิชาการเกษตร / กรมการข้าว / กรมส่งเสริมการเกษตร")
+    planting_window = cal_guide.get("planting_window", "ช่วงต้นถึงกลางฤดูฝน (พฤษภาคม–กรกฎาคม)")
+    water_req = cal_guide.get("water_soil_req", "ต้องการความชื้นในดินสม่ำเสมอและดินที่ระบายน้ำได้ดี")
+    cautions = cal_guide.get("key_cautions", "เฝ้าระวังช่วงฝนทิ้งช่วงและโรคแมลงศัตรูพืชตามฤดูกาล")
+    growth_days = cal_guide.get("growth_duration_days", "ตามอายุสายพันธุ์")
+
+    # 1. สถานการณ์ปัจจุบัน (Current Situation)
+    rain_str = f"{rainfall_val:,.1f} มม." if rainfall_val is not None and not np.isnan(rainfall_val) else "ตามสถิติเฉลี่ยรายฤดูกาล"
+    temp_str = f"{temp_val:.1f} °C" if temp_val is not None and not np.isnan(temp_val) else "ตามเกณฑ์อุณหภูมิปกติ"
+
+    current_sit = (
+        f"ในพื้นที่จังหวัด**{province_name}** สำหรับการผลิต**{crop_name}** "
+        f"สถิติฝนสะสมเชิงพื้นที่อยู่ที่ประมาณ **{rain_str}** อุณหภูมิเฉลี่ย **{temp_str}** "
+        f"สอดคล้องกับวงจรเพาะปลูกตามปฏิทินเกษตรกรรมของ{crop_source} "
+        f"ซึ่งระบุช่วงปลูกที่เหมาะสมคือ **{planting_window}** (ระยะเวลาเพาะปลูก {growth_days})"
+    )
+
+    # 2. ความเสี่ยงที่ต้องเฝ้าระวัง (Risks to Watch)
+    risks_list = []
+    if rainfall_val is not None and rainfall_val < 1000.0:
+        risks_list.append("⚠️ **ความเสี่ยงภาวะฝนทิ้งช่วง/น้ำแล้ง:** ปริมาณน้ำฝนสะสมค่อนข้างจำกัด อาจกระทบต่อระยะตั้งท้องออกรวงของพืช")
+    elif rainfall_val is not None and rainfall_val > 1800.0:
+        risks_list.append("⚠️ **ความเสี่ยงน้ำท่วมขังแปลง:** ปริมาณฝนสะสมสูง อาจทำให้ดินอิ่มตัวและเกิดปัญหารากเน่าโคนเน่า")
+    else:
+        risks_list.append("🔍 **ความเสี่ยงฝนไม่สม่ำเสมอ:** การกระจายตัวของฝนในแต่ละเดือนมีความแปรปรวน เกษตรกรควรสำรองน้ำในสระประจำไร่นา")
+
+    if disaster_val is not None and not np.isnan(disaster_val) and disaster_val > 15000:
+        risks_list.append(f"⚠️ **ความเสี่ยงพื้นที่ประสบภัยสะสม:** มีสถิติพื้นที่เกษตรได้รับผลกระทบจากภัยธรรมชาติในจังหวัด {disaster_val:,.0f} ไร่")
+
+    risks_list.append(f"🐛 **ศัตรูพืชและโรคระบาด:** {cautions}")
+
+    # 3. สิ่งที่ควรเตรียมตัว (Preparations Needed)
+    preps_list = [
+        "🚜 **เตรียมแปลงและสภาพดิน:** ไถดะตากดิน 7–10 วันเพื่อทำลายเชื้อโรคและไข่แมลง ยกร่องหรือปรับระดับดินตามชนิดพืช",
+        "🌱 **คัดเลือกเมล็ดพันธุ์บริสุทธิ์:** ใช้เมล็ดพันธุ์ที่ผ่านการรับรองจากหน่วยงานราชการ และคลุกสารป้องกันกำจัดเชื้อราก่อนปลูก",
+        "💧 **ตรวจสอบระบบน้ำ:** ตรวจสอบปริมาณน้ำต้นทุนในสระเก็บน้ำประจำไร่นาหรือคลองส่งน้ำชลประทานก่อนลงมือเพาะปลูก",
+        "🧪 **ตรวจวิเคราะห์ดิน:** เก็บตัวอย่างดินส่งตรวจหาค่า pH และธาตุอาหารเพื่อสั่งตัดปุ๋ยให้ตรงตามความต้องการจริงของพืช"
+    ]
+
+    # 4. การปฏิบัติที่แนะนำ (Recommended Practices)
+    practices_list = [
+        f"🌾 **การบริหารจัดการน้ำ:** {water_req}",
+        "🌿 **การจัดการปุ๋ยสั่งตัด:** แบ่งใส่ปุ๋ยตามระยะการเจริญเติบโต 2–3 ครั้ง หลีกเลี่ยงการใส่ปุ๋ยไนโตรเจนมากเกินไปช่วงฝนตกชุกเพื่อป้องกันโรคไหม้",
+        "🛡️ **การจัดการศัตรูพืชแบบผสมผสาน (IPM):** สำรวจแปลงสัปดาห์ละ 1 ครั้ง และอนุรักษ์แมลงศัตรูธรรมชาติ (ตัวห้ำ-ตัวเบียน)"
+    ]
+
+    # 5. เงื่อนไขหรือสัญญาณที่ควรติดตามเพิ่มเติม (Signals to Monitor)
+    signals_list = [
+        "📡 **การพยากรณ์อากาศ 7 วันล่วงหน้า:** ติดตามประกาศเตือนภัยสภาพอากาศและฝนตกหนักจากกรมอุตุนิยมวิทยา (TMD)",
+        "🌊 **สถานการณ์น้ำท่าและเขื่อน:** ติดตามระดับน้ำในอ่างเก็บน้ำใกล้เคียงผ่านระบบศูนย์ข้อมูลน้ำแห่งชาติ (HII/สสน.)",
+        "💰 **ราคาตลาดหน้าฟาร์ม:** ติดตามแนวโน้มราคารายสัปดาห์ของ สศก. เพื่อวางแผนช่วงเวลาเก็บเกี่ยวและกระจายผลผลิต",
+        "📢 **ประกาศเตือนภัย ปภ.:** เฝ้าระวังพื้นที่เสี่ยงน้ำหลาก ดินถล่ม หรือภัยแล้งจากกรมป้องกันและบรรเทาสาธารณภัย"
+    ]
+
+    return {
+        "crop_name": crop_name,
+        "province_name": province_name,
+        "planting_window": planting_window,
+        "growth_duration_days": growth_days,
+        "water_soil_req": water_req,
+        "source_agency": crop_source,
+        "evidence_date": f"ข้อมูลรอบปี พ.ศ. {year}",
+        "current_situation": current_sit,
+        "risks_to_watch": risks_list,
+        "preparations_needed": preps_list,
+        "recommended_practices": practices_list,
+        "signals_to_monitor": signals_list,
+        "disclaimer": (
+            "หมายเหตุ: คำแนะนำการเพาะปลูกอ้างอิงจากปฏิทินทางวิชาการและสถิติสภาพอากาศรายจังหวัด "
+            "มิใช่การพยากรณ์แบบฟันธงระดับแปลง เกษตรกรควรพิจารณาสภาพดิน น้ำ และความพร้อมจริงในพื้นที่ประกอบการตัดสินใจ"
+        )
+    }
+
+
+def compute_price_summary_metrics(df_prices: pd.DataFrame, crop_name: str) -> Dict[str, Any]:
+    """
+    Compute verified summary metrics for agricultural market prices from OAE.
+    Includes latest price, min, max, average, and weekly/monthly changes.
+    """
+    if df_prices.empty or "product" not in df_prices.columns:
+        return {"has_data": False}
+
+    sub = df_prices[df_prices["product"] == crop_name].copy()
+    if sub.empty:
+        # Check partial substring match (e.g. 'มันสำปะหลัง' in 'มันสำปะหลังสด')
+        partial_match = df_prices[df_prices["product"].str.contains(crop_name, na=False)]
+        if not partial_match.empty:
+            crop_name = partial_match["product"].iloc[0]
+            sub = df_prices[df_prices["product"] == crop_name].copy()
+        else:
+            sub = df_prices.copy()
+            crop_name = sub["product"].iloc[0]
+
+    sub = sub.sort_values(by=["year", "month", "week"]).reset_index(drop=True)
+    price_col = "price_baht_per_kg" if "price_baht_per_kg" in sub.columns else "price_baht_per_ton"
+    unit_str = "บาท/กก." if price_col == "price_baht_per_kg" else "บาท/ตัน"
+
+    latest_val = float(sub[price_col].iloc[-1])
+    min_val = float(sub[price_col].min())
+    max_val = float(sub[price_col].max())
+    mean_val = float(sub[price_col].mean())
+
+    # Calculate WoW change
+    wow_change = 0.0
+    wow_pct = 0.0
+    if len(sub) >= 2:
+        prev_val = float(sub[price_col].iloc[-2])
+        wow_change = round(latest_val - prev_val, 2)
+        wow_pct = round((wow_change / prev_val) * 100.0, 2) if prev_val > 0 else 0.0
+
+    # Calculate MoM change (approx 4 weeks back)
+    mom_change = 0.0
+    mom_pct = 0.0
+    if len(sub) >= 5:
+        prev_month_val = float(sub[price_col].iloc[-5])
+        mom_change = round(latest_val - prev_month_val, 2)
+        mom_pct = round((mom_change / prev_month_val) * 100.0, 2) if prev_month_val > 0 else 0.0
+
+    latest_year = int(sub["year"].iloc[-1])
+    latest_month = int(sub["month"].iloc[-1])
+    latest_week = int(sub["week"].iloc[-1])
+
+    return {
+        "has_data": True,
+        "product": crop_name,
+        "latest_price": latest_val,
+        "min_price": min_val,
+        "max_price": max_val,
+        "mean_price": mean_val,
+        "unit": unit_str,
+        "wow_change": wow_change,
+        "wow_pct": wow_pct,
+        "mom_change": mom_change,
+        "mom_pct": mom_pct,
+        "latest_period": f"สัปดาห์ที่ {latest_week} เดือน {latest_month} ปี พ.ศ. {latest_year}",
+        "data_source": "สำนักงานเศรษฐกิจการเกษตร (สศก.)",
+        "num_records": len(sub)
+    }

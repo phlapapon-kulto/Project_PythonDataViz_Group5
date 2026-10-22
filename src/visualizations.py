@@ -4,6 +4,8 @@ Implements Plotly-based charts adhering to professional visual design standards,
 natural green/cream color palette, clear tooltips, units, and responsive layouts.
 """
 
+from __future__ import annotations
+
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
@@ -988,5 +990,398 @@ def create_cost_price_margin_chart(
         yaxis=dict(title="บาทต่อกิโลกรัม (บาท/กก.)", showgrid=True, gridcolor="#E2E8F0", zeroline=True, zerolinecolor="#64748B"),
         height=360,
         margin=dict(l=20, r=20, t=50, b=40)
+    )
+    return fig
+
+
+def create_climate_disaster_map(
+    df_rain: pd.DataFrame,
+    df_temp: pd.DataFrame,
+    df_disaster: pd.DataFrame,
+    df_agromet: pd.DataFrame,
+    geojson_data: Dict[str, Any],
+    layer_type: str = "rain",
+    year: int = 2562,
+    selected_province: Optional[str] = None
+) -> go.Figure:
+    """
+    Generate interactive Thailand map for Tab 2: Climate & Disaster Layers.
+    Supports switchable layers:
+    - 'rain': HII spatial rainfall (mm)
+    - 'temp': HII provincial temperature (°C)
+    - 'disaster': DOAE/DDPM disaster affected area (rai)
+    - 'stations': TMD agromet station network with live weather bubbles
+    """
+    all_provinces = [f["properties"]["pro_th"] for f in geojson_data["features"]]
+    base_df = pd.DataFrame({"province": all_provinces})
+    fig = go.Figure()
+
+    if layer_type == "temp":
+        temp_sub = df_temp[df_temp["year"] == year] if ("year" in df_temp.columns and not df_temp.empty) else df_temp
+        metric_col = "temp_annual_mean" if "temp_annual_mean" in df_temp.columns else ("temp_c" if "temp_c" in df_temp.columns else None)
+        if metric_col and not temp_sub.empty:
+            merged = pd.merge(base_df, temp_sub[["province", metric_col]], on="province", how="left")
+        else:
+            merged = base_df.copy()
+            merged[metric_col or "temp"] = np.nan
+
+        metric_name = "อุณหภูมิเฉลี่ย"
+        unit_str = "°C"
+        colorscale = "YlOrRd"
+        source_label = "สสน. HII"
+
+    elif layer_type == "disaster":
+        dis_sub = df_disaster[df_disaster["year"] == year] if ("year" in df_disaster.columns and not df_disaster.empty) else df_disaster
+        metric_col = "total_disaster_area_rai" if "total_disaster_area_rai" in df_disaster.columns else None
+        if metric_col and not dis_sub.empty:
+            merged = pd.merge(base_df, dis_sub[["province", metric_col]], on="province", how="left")
+        else:
+            merged = base_df.copy()
+            merged[metric_col or "disaster"] = np.nan
+
+        metric_name = "พื้นที่ประสบภัยพิบัติ"
+        unit_str = "ไร่"
+        colorscale = "Reds"
+        source_label = "ปภ. & กรมส่งเสริมการเกษตร"
+
+    elif layer_type == "stations":
+        merged = base_df.copy()
+        merged["dummy"] = 0
+        metric_col = "dummy"
+        metric_name = "สถานีตรวจวัด"
+        unit_str = "แห่ง"
+        colorscale = [[0, "#F1F5F9"], [1, "#F1F5F9"]]
+        source_label = "กรมอุตุนิยมวิทยา TMD"
+
+    else:  # Default: 'rain'
+        rain_sub = df_rain[df_rain["year"] == year] if ("year" in df_rain.columns and not df_rain.empty) else df_rain
+        metric_col = "rainfall_annual_mm" if "rainfall_annual_mm" in df_rain.columns else None
+        if metric_col and not rain_sub.empty:
+            merged = pd.merge(base_df, rain_sub[["province", metric_col]], on="province", how="left")
+        else:
+            merged = base_df.copy()
+            merged[metric_col or "rain"] = np.nan
+
+        metric_name = "ฝนสะสมเชิงพื้นที่"
+        unit_str = "มม."
+        colorscale = "Blues"
+        source_label = "สสน. HII (IDW)"
+
+    hover_texts = []
+    for _, row in merged.iterrows():
+        p = row["province"]
+        val = row[metric_col] if metric_col in row else np.nan
+        if layer_type == "stations":
+            hover_texts.append(f"<b>จังหวัด{p}</b><br>คลิกเพื่อดูสถานีในพื้นที่")
+        elif pd.isna(val):
+            hover_texts.append(f"<b>จังหวัด{p}</b><br>ปี: พ.ศ. {year}<br>สถานะ: <i>ไม่มีข้อมูลตรวจวัด</i>")
+        else:
+            hover_texts.append(
+                f"<b>จังหวัด{p}</b><br>"
+                f"ปี: พ.ศ. {year}<br>"
+                f"{metric_name}: <b>{val:,.1f} {unit_str}</b><br>"
+                f"แหล่งข้อมูล: {source_label}"
+            )
+    merged["hover_text"] = hover_texts
+
+    fig.add_trace(go.Choropleth(
+        geojson=geojson_data,
+        locations=merged["province"],
+        z=merged[metric_col],
+        featureidkey="properties.pro_th",
+        colorscale=colorscale,
+        text=merged["hover_text"],
+        hoverinfo="text",
+        marker_line_color="#FFFFFF",
+        marker_line_width=0.6,
+        showscale=(layer_type != "stations"),
+        colorbar=dict(
+            title=dict(text=f"<b>{metric_name}</b><br>({unit_str})", font=dict(size=11)),
+            thickness=13,
+            len=0.7,
+            x=0.98,
+            y=0.5
+        )
+    ))
+
+    if layer_type == "stations" and not df_agromet.empty and "latitude" in df_agromet.columns and "longitude" in df_agromet.columns:
+        valid_stns = df_agromet.dropna(subset=["latitude", "longitude"]).copy()
+        rain_disp_col = "rainfall_24h_mm" if "rainfall_24h_mm" in valid_stns.columns else ("rainfall_mm" if "rainfall_mm" in valid_stns.columns else None)
+
+        stn_hover = []
+        for _, stn in valid_stns.iterrows():
+            rain_txt = f"{stn[rain_disp_col]:.1f} มม." if (rain_disp_col and pd.notna(stn[rain_disp_col])) else "0.0 มม."
+            temp_txt = f"{stn.get('temp_c', 'N/A')} °C" if pd.notna(stn.get('temp_c')) else "N/A"
+            rh_txt = f"{stn.get('relative_humidity_pct', 'N/A')}%" if pd.notna(stn.get('relative_humidity_pct')) else "N/A"
+            wind_txt = f"{stn.get('wind_speed_kmh', 0):.1f} กม./ชม." if pd.notna(stn.get('wind_speed_kmh')) else "0.0"
+            stn_hover.append(
+                f"<b>📡 สถานี: {stn.get('station_name', '')}</b><br>"
+                f"จังหวัด: {stn.get('province', '')}<br>"
+                f"อุณหภูมิ: <b>{temp_txt}</b><br>"
+                f"ความชื้นสัมพัทธ์: <b>{rh_txt}</b><br>"
+                f"ฝนรอบ 24 ชม.: <b>{rain_txt}</b><br>"
+                f"ความเร็วลม: <b>{wind_txt}</b>"
+            )
+
+        fig.add_trace(go.Scattergeo(
+            lat=valid_stns["latitude"],
+            lon=valid_stns["longitude"],
+            text=stn_hover,
+            hoverinfo="text",
+            mode="markers+text",
+            marker=dict(
+                size=11,
+                color="#2D6A4F",
+                line=dict(color="#FFFFFF", width=1.5),
+                symbol="circle"
+            ),
+            name="สถานี TMD Agromet"
+        ))
+
+    if selected_province and selected_province in all_provinces:
+        fig.add_trace(go.Choropleth(
+            geojson=geojson_data,
+            locations=[selected_province],
+            z=[1],
+            featureidkey="properties.pro_th",
+            colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
+            showscale=False,
+            marker_line_color=COLOR_WARNING,
+            marker_line_width=3.5,
+            hoverinfo="skip"
+        ))
+
+    fig.update_geos(
+        fitbounds="locations",
+        visible=False,
+        projection_type="mercator"
+    )
+
+    apply_standard_layout(
+        fig,
+        title=dict(text=f"<b>แผนที่สภาพอากาศและภัยพิบัติ: {metric_name}</b> | ปี พ.ศ. {year}", font=dict(size=14, color=COLOR_FOREST_DARK)),
+        height=580,
+        margin=dict(l=0, r=0, t=35, b=0)
+    )
+    return fig
+
+
+def create_market_price_map(
+    df_ag: pd.DataFrame,
+    geojson_data: Dict[str, Any],
+    crop_name: str = "ข้าวนาปี",
+    year: int = 2562,
+    selected_province: Optional[str] = None
+) -> go.Figure:
+    """
+    Generate Thailand map for Tab 3: Market & Price Intelligence.
+    Visualizes provincial production volume and market concentration (tons) for the selected crop.
+    """
+    all_provinces = [f["properties"]["pro_th"] for f in geojson_data["features"]]
+    base_df = pd.DataFrame({"province": all_provinces})
+
+    ag_sub = df_ag[(df_ag["geo_level"] == "province") & (df_ag["year"] == year)].copy()
+    if crop_name != "ทั้งหมด" and not ag_sub.empty:
+        ag_sub = ag_sub[ag_sub["product"] == crop_name]
+
+    ag_prov = ag_sub.groupby("province")["production_ton"].sum().reset_index() if not ag_sub.empty else pd.DataFrame(columns=["province", "production_ton"])
+    total_national_prod = ag_prov["production_ton"].sum() if not ag_prov.empty else 0.0
+
+    merged = pd.merge(base_df, ag_prov, on="province", how="left")
+
+    hover_texts = []
+    for _, row in merged.iterrows():
+        p = row["province"]
+        val = row["production_ton"]
+        if pd.isna(val) or val <= 0:
+            hover_texts.append(f"<b>จังหวัด{p}</b><br>สินค้า: {crop_name}<br>ผลผลิตเข้าสู่ตลาด: <i>ไม่มีข้อมูลการผลิต</i>")
+        else:
+            share_pct = (val / total_national_prod * 100.0) if total_national_prod > 0 else 0.0
+            hover_texts.append(
+                f"<b>จังหวัด{p}</b><br>"
+                f"สินค้า: {crop_name} (พ.ศ. {year})<br>"
+                f"ปริมาณผลผลิตรวม: <b>{val:,.0f} ตัน</b><br>"
+                f"สัดส่วนในตลาดประเทศ: <b>{share_pct:.1f}%</b><br>"
+                f"<i>*ราคาหน้าฟาร์มเป็นราคาอ้างอิงระดับประเทศจาก สศก.</i>"
+            )
+    merged["hover_text"] = hover_texts
+
+    fig = go.Figure()
+    fig.add_trace(go.Choropleth(
+        geojson=geojson_data,
+        locations=merged["province"],
+        z=merged["production_ton"],
+        featureidkey="properties.pro_th",
+        colorscale="Viridis",
+        text=merged["hover_text"],
+        hoverinfo="text",
+        marker_line_color="#FFFFFF",
+        marker_line_width=0.6,
+        colorbar=dict(
+            title=dict(text="<b>ผลผลิตในตลาด</b><br>(ตัน)", font=dict(size=11)),
+            thickness=13,
+            len=0.7,
+            x=0.98,
+            y=0.5
+        )
+    ))
+
+    if selected_province and selected_province in all_provinces:
+        fig.add_trace(go.Choropleth(
+            geojson=geojson_data,
+            locations=[selected_province],
+            z=[1],
+            featureidkey="properties.pro_th",
+            colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
+            showscale=False,
+            marker_line_color=COLOR_WARNING,
+            marker_line_width=3.5,
+            hoverinfo="skip"
+        ))
+
+    fig.update_geos(
+        fitbounds="locations",
+        visible=False,
+        projection_type="mercator"
+    )
+
+    apply_standard_layout(
+        fig,
+        title=dict(text=f"<b>การกระจายตัวของผลผลิตในตลาด: {crop_name}</b> | ปี พ.ศ. {year}", font=dict(size=14, color=COLOR_FOREST_DARK)),
+        height=580,
+        margin=dict(l=0, r=0, t=35, b=0)
+    )
+    return fig
+
+
+def create_production_driver_map(
+    df_ag: pd.DataFrame,
+    df_irrig: pd.DataFrame,
+    df_soil: pd.DataFrame,
+    df_disaster: pd.DataFrame,
+    geojson_data: Dict[str, Any],
+    layer_type: str = "yield",
+    crop_name: str = "ข้าวนาปี",
+    year: int = 2562,
+    selected_province: Optional[str] = None
+) -> go.Figure:
+    """
+    Generate Thailand map for Tab 4: Production Drivers & Farm Economics.
+    Supports switchable layers:
+    - 'yield': Weighted yield per rai (kg/rai)
+    - 'irrigation': RID & OAE irrigation ratio (%)
+    - 'soil': LDD Agri-Map suitable area S1+S2 (%)
+    - 'disaster': DOAE/DDPM total disaster affected area (rai)
+    """
+    all_provinces = [f["properties"]["pro_th"] for f in geojson_data["features"]]
+    base_df = pd.DataFrame({"province": all_provinces})
+
+    if layer_type == "irrigation":
+        ir_sub = df_irrig[df_irrig["year"] == year] if ("year" in df_irrig.columns and not df_irrig.empty) else df_irrig
+        metric_col = "irrigation_ratio_pct" if "irrigation_ratio_pct" in ir_sub.columns else None
+        merged = pd.merge(base_df, ir_sub[["province", metric_col]], on="province", how="left") if metric_col else base_df.assign(irrigation_ratio_pct=np.nan)
+        metric_name = "สัดส่วนพื้นที่ชลประทาน"
+        unit_str = "%"
+        colorscale = "Tealgrn"
+        source_label = "กรมชลประทาน & สศก."
+
+    elif layer_type == "soil":
+        soil_sub = df_soil[df_soil["crop"] == crop_name] if ("crop" in df_soil.columns and not df_soil.empty) else df_soil
+        metric_col = "suitable_total_s1_s2_pct" if "suitable_total_s1_s2_pct" in soil_sub.columns else None
+        merged = pd.merge(base_df, soil_sub[["province", metric_col]], on="province", how="left") if metric_col else base_df.assign(suitable_total_s1_s2_pct=np.nan)
+        metric_name = f"ความเหมาะสมของดิน S1+S2 ({crop_name})"
+        unit_str = "%"
+        colorscale = "Greens"
+        source_label = "กรมพัฒนาที่ดิน (Agri-Map)"
+
+    elif layer_type == "disaster":
+        dis_sub = df_disaster[df_disaster["year"] == year] if ("year" in df_disaster.columns and not df_disaster.empty) else df_disaster
+        metric_col = "total_disaster_area_rai" if "total_disaster_area_rai" in dis_sub.columns else None
+        merged = pd.merge(base_df, dis_sub[["province", metric_col]], on="province", how="left") if metric_col else base_df.assign(total_disaster_area_rai=np.nan)
+        metric_name = "พื้นที่ประสบภัยพิบัติรวม"
+        unit_str = "ไร่"
+        colorscale = "Oranges"
+        source_label = "ปภ. & กรมส่งเสริมการเกษตร"
+
+    else:  # Default: 'yield'
+        ag_sub = df_ag[(df_ag["geo_level"] == "province") & (df_ag["year"] == year)].copy()
+        if crop_name != "ทั้งหมด" and not ag_sub.empty:
+            ag_sub = ag_sub[ag_sub["product"] == crop_name]
+
+        if not ag_sub.empty:
+            ag_prov = ag_sub.groupby("province").agg(
+                production_ton=("production_ton", "sum"),
+                area_harvest_rai=("area_harvest_rai", "sum")
+            ).reset_index()
+            ag_prov["calc_yield_per_rai"] = ag_prov["production_ton"] * 1000.0 / ag_prov["area_harvest_rai"]
+            merged = pd.merge(base_df, ag_prov[["province", "calc_yield_per_rai"]], on="province", how="left")
+        else:
+            merged = base_df.assign(calc_yield_per_rai=np.nan)
+
+        metric_col = "calc_yield_per_rai"
+        metric_name = f"ผลผลิตเฉลี่ยต่อไร่ ({crop_name})"
+        unit_str = "กก./ไร่"
+        colorscale = "YlGn"
+        source_label = "สศก."
+
+    hover_texts = []
+    for _, row in merged.iterrows():
+        p = row["province"]
+        val = row[metric_col] if metric_col in row else np.nan
+        if pd.isna(val):
+            hover_texts.append(f"<b>จังหวัด{p}</b><br>สถานะ: <i>ไม่มีข้อมูล</i>")
+        else:
+            hover_texts.append(
+                f"<b>จังหวัด{p}</b><br>"
+                f"ปี: พ.ศ. {year}<br>"
+                f"{metric_name}: <b>{val:,.1f} {unit_str}</b><br>"
+                f"แหล่งข้อมูล: {source_label}"
+            )
+    merged["hover_text"] = hover_texts
+
+    fig = go.Figure()
+    fig.add_trace(go.Choropleth(
+        geojson=geojson_data,
+        locations=merged["province"],
+        z=merged[metric_col],
+        featureidkey="properties.pro_th",
+        colorscale=colorscale,
+        text=merged["hover_text"],
+        hoverinfo="text",
+        marker_line_color="#FFFFFF",
+        marker_line_width=0.6,
+        colorbar=dict(
+            title=dict(text=f"<b>{unit_str}</b>", font=dict(size=11)),
+            thickness=13,
+            len=0.7,
+            x=0.98,
+            y=0.5
+        )
+    ))
+
+    if selected_province and selected_province in all_provinces:
+        fig.add_trace(go.Choropleth(
+            geojson=geojson_data,
+            locations=[selected_province],
+            z=[1],
+            featureidkey="properties.pro_th",
+            colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
+            showscale=False,
+            marker_line_color=COLOR_WARNING,
+            marker_line_width=3.5,
+            hoverinfo="skip"
+        ))
+
+    fig.update_geos(
+        fitbounds="locations",
+        visible=False,
+        projection_type="mercator"
+    )
+
+    apply_standard_layout(
+        fig,
+        title=dict(text=f"<b>แผนที่ปัจจัยการผลิต: {metric_name}</b> | ปี พ.ศ. {year}", font=dict(size=14, color=COLOR_FOREST_DARK)),
+        height=580,
+        margin=dict(l=0, r=0, t=35, b=0)
     )
     return fig

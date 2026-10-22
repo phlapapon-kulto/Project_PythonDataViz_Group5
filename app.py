@@ -1,12 +1,14 @@
 """
 Thai Agriculture & Climate Intelligence Dashboard — Real Open Data Edition
 A comprehensive, academic-grade data intelligence platform analyzing Thailand's
-agricultural production, climate interactions, production drivers, and farm economics.
+agricultural production, climate interactions, market prices, and farm economics.
 
 Built with Streamlit, Plotly, Pandas, and SciPy.
 Strictly relies on verified government Open Data sources (OAE, TMD, HII, RID, LDD, DDPM, DOAE).
 Zero mock data. Double-counting prevented 100%. Exactly 4 Tabs.
 """
+
+from __future__ import annotations
 
 import sys
 import os
@@ -42,7 +44,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
-# Canonical package imports from src (unified import strategy without try/except fallbacks)
+# Canonical package imports from src
 from src.data_loader import (
     load_agriculture_data,
     load_spatial_rain_data,
@@ -99,11 +101,17 @@ from src.analytics import (
     join_disaster_and_yield,
     analyze_growing_season_rainfall,
     compare_production_cost_and_price,
-    calculate_enhanced_farm_profit
+    calculate_enhanced_farm_profit,
+    calculate_climate_risk_status,
+    generate_farmer_decision_advisory,
+    compute_price_summary_metrics
 )
 
 from src.visualizations import (
     create_thailand_map,
+    create_climate_disaster_map,
+    create_market_price_map,
+    create_production_driver_map,
     create_ranking_bar_chart,
     create_trend_line_chart,
     create_bivariate_scatter_chart,
@@ -177,7 +185,7 @@ st.markdown("""
         background: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-radius: 12px;
-        padding: 18px 20px;
+        padding: 16px 18px;
         box-shadow: 0 2px 6px rgba(0,0,0,0.03);
         transition: transform 0.15s ease, box-shadow 0.15s ease;
         height: 100%;
@@ -196,7 +204,7 @@ st.markdown("""
         margin-bottom: 6px;
     }
     .kpi-value {
-        font-size: 24px;
+        font-size: 23px;
         font-weight: 700;
         color: #1B4D3E;
         line-height: 1.2;
@@ -245,9 +253,26 @@ st.markdown("""
         background: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-radius: 12px;
-        padding: 16px 20px 8px 20px;
-        margin-bottom: 16px;
+        padding: 14px 18px 8px 18px;
+        margin-bottom: 14px;
         box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+    }
+    .advisory-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.02);
+    }
+    .advisory-header {
+        font-size: 14px;
+        font-weight: 700;
+        color: #1B4D3E;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -367,33 +392,30 @@ init_session_state(default_year=latest_year)
 
 
 # ---------------------------------------------------------
-# Sidebar: Documentation, Governance & Quick Shortcuts
+# Sidebar: Documentation, Governance & Intelligence Navigator
+# (Requirement A.5: Replaced hardcoded shortcuts with 26-crop dynamic navigator)
 # ---------------------------------------------------------
 with st.sidebar:
-    st.markdown("### 🌾 ทางลัดพืชเศรษฐกิจหลัก")
-    col_sc1, col_sc2 = st.columns(2)
-    with col_sc1:
-        if st.button("🌾 ข้าวนาปี", use_container_width=True):
-            st.session_state.selected_product = "ข้าวนาปี"
-            st.rerun()
-        if st.button("🌾 ข้าวนาปรัง", use_container_width=True):
-            st.session_state.selected_product = "ข้าวนาปรัง"
-            st.rerun()
-    with col_sc2:
-        if st.button("🥔 มันสำปะหลัง", use_container_width=True):
-            st.session_state.selected_product = "มันสำปะหลัง"
-            st.rerun()
-        if st.button("🌽 ข้าวโพดเลี้ยงสัตว์", use_container_width=True):
-            st.session_state.selected_product = "ข้าวโพดเลี้ยงสัตว์"
-            st.rerun()
+    st.markdown("### 🌾 ระบบสนับสนุนการตัดสินใจเพื่อเกษตรกรไทย")
+    st.markdown(
+        "💡 **รองรับพืชเกษตรครบทั้ง 26 ชนิด:** แดชบอร์ดนี้ออกแบบให้สนับสนุนเกษตรกรอย่างเท่าเทียม "
+        "โดยท่านสามารถเลือกชนิดพืชใดก็ได้จากตัวกรองหลักด้านบน เพื่อดูสถิติและคำแนะนำเฉพาะทาง"
+    )
+    st.info(
+        "📌 **สารสนเทศ 4 มิติหลัก (4 Tabs):**\n"
+        "1. **Tab 1: ภาพรวมการผลิต** — เนื้อที่เพาะปลูก ผลผลิตต่อไร่ และการกระจายตัว\n"
+        "2. **Tab 2: ภูมิอากาศและคำแนะนำ** — ฝน อุณหภูมิ เสี่ยงภัย และ 5 เสาหลักควรทำอะไร\n"
+        "3. **Tab 3: ตลาดและราคา** — ราคาสินค้าเกษตรหน้าฟาร์มจริง แนวโน้ม และส่วนต่าง\n"
+        "4. **Tab 4: ผลผลิตและเศรษฐศาสตร์ฟาร์ม** — ชลประทาน ดิน Agri-Map และเครื่องคำนวณกำไร"
+    )
 
     st.markdown("---")
     st.markdown("#### 🛡️ ธรรมาภิบาลข้อมูล (Data Governance)")
     st.markdown(
         f"- **สถิติการผลิตการเกษตร:** สศก. พ.ศ. {min(available_years)}–{max(available_years)} (77 จังหวัด 26 ชนิดพืช)\n"
         f"- **ฝนเชิงพื้นที่รายจังหวัด:** สสน. HII (IDW) พ.ศ. 2561–2562\n"
-        f"- **สภาพอากาศเกษตรรายวัน:** กรมอุตุนิยมวิทยา TMD\n"
-        f"- **ราคาหน้าฟาร์ม:** สศก. พ.ศ. 2561–2562\n"
+        f"- **สภาพอากาศเกษตรรายวัน:** กรมอุตุนิยมวิทยา TMD Open Data\n"
+        f"- **ราคาหน้าฟาร์ม:** สศก. & NABC พ.ศ. 2561–2562\n"
         f"- **ชลประทาน & ดิน:** กรมชลประทาน & กรมพัฒนาที่ดิน (Agri-Map)\n"
         f"- **ข้อมูลจำลอง (Mock):** ❌ ห้ามใช้เด็ดขาด (Real Open Data 100%)"
     )
@@ -416,114 +438,125 @@ st.markdown(f"""
 
 
 # ---------------------------------------------------------
-# Global Filter Bar (Prominent Top Controls)
+# Global Filter Bar & Quick Search (Prominent Top Controls)
 # ---------------------------------------------------------
-st.markdown("""
-<div class="filter-box">
-    <div style="font-weight: 700; font-size: 14.5px; color: #1B4D3E; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-        <span>🔍 ตัวกรองหลักของ Dashboard (Global Filters)</span>
-        <span style="font-size: 12px; font-weight: 400; color: #64748B;">— ตัวกรองเชื่อมโยงพร้อมกันทุกแท็บ แผนที่ กราฟ และตาราง</span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+all_products = ["ทั้งหมด"] + sorted(df_ag["product"].dropna().unique().tolist())
 
-with st.container():
-    # Row 1: Region, Province, Granularity, Product
-    col_f1, col_f2, col_f3, col_f4 = st.columns([1.1, 1.2, 1.0, 1.3])
+# Quick search box synced with filters
+col_search, col_reset = st.columns([3.2, 0.8])
+with col_search:
+    search_query = st.text_input(
+        "🔍 ค้นหาด่วน (พิมพ์ชื่อจังหวัด หรือ ชนิดพืช เพื่อเลือกตัวกรองทันที):",
+        placeholder="เช่น เชียงใหม่, ขอนแก่น, สุพรรณบุรี, ข้าวนาปี, ทุเรียน, ยางพารา...",
+        key="global_search_input"
+    )
+    if search_query:
+        query_strip = search_query.strip()
+        matched_prov = [p for p in OFFICIAL_77_PROVINCES if query_strip in p]
+        matched_crops = [c for c in all_products if c != "ทั้งหมด" and query_strip in c]
+        if matched_prov and not matched_crops:
+            if st.session_state.selected_province != matched_prov[0]:
+                st.session_state.selected_province = matched_prov[0]
+                st.session_state.selected_region = PROVINCE_TO_REGION.get(matched_prov[0], "ทั้งหมด")
+        elif matched_crops and not matched_prov:
+            if st.session_state.selected_product != matched_crops[0]:
+                st.session_state.selected_product = matched_crops[0]
 
-    with col_f1:
-        region_options = ["ทั้งหมด", "ภาคเหนือ", "ภาคตะวันออกเฉียงเหนือ", "ภาคกลาง", "ภาคใต้"]
-        curr_reg_idx = region_options.index(st.session_state.selected_region) if st.session_state.selected_region in region_options else 0
-        def on_region_change():
-            st.session_state.selected_region = st.session_state.reg_select_key
-            if st.session_state.selected_region != "ทั้งหมด":
-                valid_provs = REGION_TO_PROVINCES.get(st.session_state.selected_region, [])
-                if st.session_state.selected_province not in valid_provs:
-                    st.session_state.selected_province = "ทั้งหมด"
+with col_reset:
+    st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+    if st.button("🔄 รีเซ็ตตัวกรอง", use_container_width=True, help="คืนค่าตัวกรองเริ่มต้นทั้งหมด"):
+        reset_filters(default_year=latest_year)
+        st.rerun()
 
-        selected_region = st.selectbox(
-            "🌍 1. ภูมิภาค (Region)",
-            options=region_options,
-            index=curr_reg_idx,
-            key="reg_select_key",
-            on_change=on_region_change
-        )
-        st.session_state.selected_region = selected_region
+# Filter Selectors Row 1
+col_f1, col_f2, col_f3, col_f4 = st.columns([1.1, 1.2, 1.0, 1.3])
 
-    with col_f2:
+with col_f1:
+    region_options = ["ทั้งหมด", "ภาคเหนือ", "ภาคตะวันออกเฉียงเหนือ", "ภาคกลาง", "ภาคใต้"]
+    curr_reg_idx = region_options.index(st.session_state.selected_region) if st.session_state.selected_region in region_options else 0
+    def on_region_change():
+        st.session_state.selected_region = st.session_state.reg_select_key
         if st.session_state.selected_region != "ทั้งหมด":
-            prov_options = ["ทั้งหมด"] + sorted(REGION_TO_PROVINCES.get(st.session_state.selected_region, []))
-        else:
-            prov_options = ["ทั้งหมด"] + sorted(OFFICIAL_77_PROVINCES)
+            valid_provs = REGION_TO_PROVINCES.get(st.session_state.selected_region, [])
+            if st.session_state.selected_province not in valid_provs:
+                st.session_state.selected_province = "ทั้งหมด"
 
-        curr_prov_idx = prov_options.index(st.session_state.selected_province) if st.session_state.selected_province in prov_options else 0
-        selected_province = st.selectbox(
-            "📍 2. จังหวัด (Province)",
-            options=prov_options,
-            index=curr_prov_idx,
-            key="prov_select_key"
-        )
-        st.session_state.selected_province = selected_province
+    selected_region = st.selectbox(
+        "🌍 1. ภูมิภาค (Region)",
+        options=region_options,
+        index=curr_reg_idx,
+        key="reg_select_key",
+        on_change=on_region_change
+    )
+    st.session_state.selected_region = selected_region
 
-    with col_f3:
-        st.selectbox(
-            "🏘️ 3. ระดับพื้นที่ (Granularity)",
-            options=["ระดับจังหวัด (OAE 77 จังหวัด)"],
-            index=0,
-            disabled=True,
-            help="ข้อมูลสถิติการผลิตทางการเกษตรของ สศก. เผยแพร่ในระดับรายจังหวัด (77 จังหวัด) จึงแสดงผลระดับจังหวัดตามความละเอียดจริงของชุดข้อมูลภาครัฐ"
-        )
+with col_f2:
+    if st.session_state.selected_region != "ทั้งหมด":
+        prov_options = ["ทั้งหมด"] + sorted(REGION_TO_PROVINCES.get(st.session_state.selected_region, []))
+    else:
+        prov_options = ["ทั้งหมด"] + sorted(OFFICIAL_77_PROVINCES)
 
-    with col_f4:
-        all_products = ["ทั้งหมด"] + sorted(df_ag["product"].dropna().unique().tolist())
-        curr_prod_idx = all_products.index(st.session_state.selected_product) if st.session_state.selected_product in all_products else 0
-        selected_product = st.selectbox(
-            "🌱 4. ชนิดสินค้าเกษตร (Crop)",
-            options=all_products,
-            index=curr_prod_idx,
-            key="prod_select_key"
-        )
-        st.session_state.selected_product = selected_product
+    curr_prov_idx = prov_options.index(st.session_state.selected_province) if st.session_state.selected_province in prov_options else 0
+    selected_province = st.selectbox(
+        "📍 2. จังหวัด (Province)",
+        options=prov_options,
+        index=curr_prov_idx,
+        key="prov_select_key"
+    )
+    st.session_state.selected_province = selected_province
 
-    # Row 2: Year, Metric, Reset Button
-    col_f5, col_f6, col_f7 = st.columns([1.1, 1.8, 0.9])
+with col_f3:
+    st.selectbox(
+        "🏘️ 3. ระดับพื้นที่ (Granularity)",
+        options=["ระดับจังหวัด (สศก. 77 จังหวัด)"],
+        index=0,
+        disabled=True,
+        help="ข้อมูลสถิติการผลิตทางการเกษตรของ สศก. เผยแพร่ในระดับรายจังหวัด (77 จังหวัด) จึงแสดงผลระดับจังหวัดตามความละเอียดจริงของชุดข้อมูลภาครัฐ"
+    )
 
-    with col_f5:
-        year_options = sorted(available_years, reverse=True)
-        curr_yr_idx = year_options.index(st.session_state.selected_year) if st.session_state.selected_year in year_options else 0
-        selected_year = st.selectbox(
-            "📅 5. ปี พ.ศ. (Crop Year BE)",
-            options=year_options,
-            index=curr_yr_idx,
-            key="year_select_key"
-        )
-        st.session_state.selected_year = selected_year
+with col_f4:
+    curr_prod_idx = all_products.index(st.session_state.selected_product) if st.session_state.selected_product in all_products else 0
+    selected_product = st.selectbox(
+        "🌱 4. ชนิดสินค้าเกษตร (Crop - รองรับ 26 ชนิด)",
+        options=all_products,
+        index=curr_prod_idx,
+        key="prod_select_key"
+    )
+    st.session_state.selected_product = selected_product
 
-    metric_labels = {
-        "production_ton": ("ปริมาณผลผลิตรวม", "ตัน"),
-        "calc_yield_per_rai": ("ผลผลิตต่อไร่แบบถ่วงน้ำหนัก", "กก./ไร่"),
-        "area_plant_rai": ("เนื้อที่เพาะปลูก", "ไร่"),
-        "area_harvest_rai": ("เนื้อที่เก็บเกี่ยว", "ไร่"),
-        "calc_harvest_ratio": ("อัตราการเก็บเกี่ยว", "%")
-    }
+# Filter Selectors Row 2
+col_f5, col_f6 = st.columns([1.1, 2.9])
 
-    with col_f6:
-        metric_keys = list(metric_labels.keys())
-        curr_met_idx = metric_keys.index(st.session_state.selected_metric) if st.session_state.selected_metric in metric_keys else 0
-        selected_metric = st.selectbox(
-            "📊 6. ตัวชี้วัดสำหรับแผนที่และจัดอันดับ (Metric)",
-            options=metric_keys,
-            format_func=lambda k: f"{metric_labels[k][0]} ({metric_labels[k][1]})",
-            index=curr_met_idx,
-            key="metric_select_key"
-        )
-        st.session_state.selected_metric = selected_metric
+with col_f5:
+    year_options = sorted(available_years, reverse=True)
+    curr_yr_idx = year_options.index(st.session_state.selected_year) if st.session_state.selected_year in year_options else 0
+    selected_year = st.selectbox(
+        "📅 5. ปี พ.ศ. (Crop Year BE)",
+        options=year_options,
+        index=curr_yr_idx,
+        key="year_select_key"
+    )
+    st.session_state.selected_year = selected_year
 
-    with col_f7:
-        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-        if st.button("🔄 รีเซ็ตตัวกรอง", use_container_width=True, help="คืนค่าตัวกรองเริ่มต้นทั้งหมด"):
-            reset_filters(default_year=latest_year)
-            st.rerun()
+metric_labels = {
+    "production_ton": ("ปริมาณผลผลิตรวม", "ตัน"),
+    "calc_yield_per_rai": ("ผลผลิตต่อไร่แบบถ่วงน้ำหนัก", "กก./ไร่"),
+    "area_plant_rai": ("เนื้อที่เพาะปลูก", "ไร่"),
+    "area_harvest_rai": ("เนื้อที่เก็บเกี่ยว", "ไร่"),
+    "calc_harvest_ratio": ("อัตราการเก็บเกี่ยว", "%")
+}
+
+with col_f6:
+    metric_keys = list(metric_labels.keys())
+    curr_met_idx = metric_keys.index(st.session_state.selected_metric) if st.session_state.selected_metric in metric_keys else 0
+    selected_metric = st.selectbox(
+        "📊 6. ตัวชี้วัดสำหรับแผนที่และจัดอันดับ (Metric)",
+        options=metric_keys,
+        format_func=lambda k: f"{metric_labels[k][0]} ({metric_labels[k][1]})",
+        index=curr_met_idx,
+        key="metric_select_key"
+    )
+    st.session_state.selected_metric = selected_metric
 
 # Active Filters Summary Badge
 sel_metric_title, sel_metric_unit = metric_labels[st.session_state.selected_metric]
@@ -542,7 +575,6 @@ st.markdown(f"""
 # ---------------------------------------------------------
 # Filter Application for Main Context
 # ---------------------------------------------------------
-# 1. Fully filtered provincial subset for active view
 df_active = apply_ag_filters(
     df_ag,
     year=st.session_state.selected_year,
@@ -552,7 +584,6 @@ df_active = apply_ag_filters(
     geo_level="province"
 )
 
-# 2. Provincial subset for mapping and rankings across all provinces in selected region
 df_year_prov = apply_ag_filters(
     df_ag,
     year=st.session_state.selected_year,
@@ -562,7 +593,6 @@ df_year_prov = apply_ag_filters(
     geo_level="province"
 )
 
-# 3. Multi-year series for trend analysis across years
 df_trend_series = apply_ag_filters(
     df_ag,
     year=None,
@@ -574,13 +604,13 @@ df_trend_series = apply_ag_filters(
 
 
 # ---------------------------------------------------------
-# Main 4 Tabs Navigation (Strict Acceptance Criteria)
+# Exactly 4 Main Tabs Navigation (Strict Acceptance Criteria)
 # ---------------------------------------------------------
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 TAB 1: ภาพรวมการผลิตสินค้าเกษตร (Overview)",
-    "🌦️ TAB 2: สภาพอากาศและสถานการณ์เพาะปลูก (Climate & Harvest)",
-    "🚜 TAB 3: ปัจจัยที่เกี่ยวข้องกับผลผลิต (Production Factors)",
-    "💰 TAB 4: ราคา ต้นทุน และความคุ้มค่า (Farm Economics)"
+    "🌦️ TAB 2: ภูมิอากาศและคำแนะนำการเพาะปลูก (Climate & Advisory)",
+    "💰 TAB 3: ตลาดและสารสนเทศราคา (Market & Prices)",
+    "🚜 TAB 4: ผลผลิตและเศรษฐศาสตร์ฟาร์ม (Production Economics)"
 ])
 
 
@@ -596,7 +626,6 @@ with tab1:
         f"ชนิดพืช: {st.session_state.selected_product} (แหล่งข้อมูล: สำนักงานเศรษฐกิจการเกษตร สศก.)"
     )
 
-    # Empty State Check
     if df_active.empty:
         st.warning(
             f"⚠️ ไม่พบข้อมูลจริงสำหรับตัวกรองที่เลือก (ปี พ.ศ. {st.session_state.selected_year}, "
@@ -634,7 +663,7 @@ with tab1:
         badge_prod = get_delta_badge(kpis["total_production_ton"], kpis_prev["total_production_ton"] if kpis_prev else None, "ตัน")
         badge_yield = get_delta_badge(kpis["weighted_yield_kg_rai"], kpis_prev["weighted_yield_kg_rai"] if kpis_prev else None, "กก./ไร่", is_yield=True)
 
-        # ROW 1: 4 Key KPI Cards
+        # 4 Key KPI Cards
         col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
 
         with col_kpi1:
@@ -676,8 +705,8 @@ with tab1:
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # ROW 2: Map & YoY Comparison Chart
-        col_map, col_chart = st.columns([1.15, 1.0])
+        # Left: Thailand Map | Right: Historical Trend Chart (Requirement C Layout)
+        col_map, col_chart = st.columns([1.1, 1.0])
 
         with col_map:
             st.markdown(f"#### 🗺️ แผนที่การกระจายตัวเชิงพื้นที่ ({sel_metric_title})")
@@ -697,8 +726,7 @@ with tab1:
                 st.info("ไม่พบไฟล์แผนที่ GeoJSON สำหรับการแสดงผลแผนที่ประเทศไทย")
 
         with col_chart:
-            st.markdown(f"#### 📈 การเปรียบเทียบข้อมูลรายปีและแนวโน้มประวัติศาสตร์")
-            # Build historical time series for the current filter
+            st.markdown(f"#### 📈 แนวโน้มประวัติศาสตร์ตามตัวชี้วัด (พ.ศ. 2550–2562)")
             if not df_trend_series.empty:
                 trend_agg = df_trend_series.groupby("year").agg(
                     production_ton=("production_ton", "sum"),
@@ -732,7 +760,7 @@ with tab1:
 
         st.markdown("---")
 
-        # ROW 3: Top 10 and Bottom 10 Rankings
+        # Top 10 and Bottom 10 Rankings
         st.markdown(f"### 🏆 การจัดอันดับจังหวัดตามตัวชี้วัด: {sel_metric_title}")
         col_top, col_bot = st.columns(2)
 
@@ -776,11 +804,9 @@ with tab1:
         </div>
         """, unsafe_allow_html=True)
 
-        # ROW 4: Detailed Data Table with Search, Sort, and CSV Download
+        # Detailed Data Table with Search, Sort, and CSV Download
         st.markdown("---")
         st.markdown("### 📋 ตารางสถิติการผลิตสินค้าเกษตรรายจังหวัด (Detailed Data Table)")
-        st.caption("ตารางแสดงข้อมูลจริงที่ผ่านการกรองตามเงื่อนไขปัจจุบัน สามารถค้นหา จัดเรียง และส่งออกข้อมูลเป็นไฟล์ CSV ได้")
-
         table_cols = [
             "region", "province", "product", "year",
             "area_plant_rai", "area_harvest_rai", "production_ton",
@@ -789,7 +815,6 @@ with tab1:
         available_table_cols = [c for c in table_cols if c in df_active.columns]
         display_df = df_active[available_table_cols].copy()
 
-        # Rename columns to Thai for presentation
         col_rename_dict = {
             "region": "ภาค",
             "province": "จังหวัด",
@@ -804,22 +829,20 @@ with tab1:
         }
         display_df = display_df.rename(columns=col_rename_dict)
 
-        # Table Filter & Search Controls
         col_t1, col_t2 = st.columns([2, 1])
         with col_t1:
-            search_query = st.text_input("🔍 ค้นหาในตาราง (พิมพ์ชื่อจังหวัดหรือชนิดพืช):", key="table_search_input")
+            table_search = st.text_input("🔍 ค้นหาในตาราง (พิมพ์ชื่อจังหวัดหรือชนิดพืช):", key="tab1_table_search")
         with col_t2:
             sort_options = [c for c in display_df.columns if c not in ["ภาค", "ปี พ.ศ."]]
             sort_col = st.selectbox("เรียงลำดับตาม:", options=sort_options, index=sort_options.index("ผลผลิตรวม (ตัน)") if "ผลผลิตรวม (ตัน)" in sort_options else 0)
 
-        if search_query:
-            mask = display_df.astype(str).apply(lambda row: row.str.contains(search_query, case=False).any(), axis=1)
+        if table_search:
+            mask = display_df.astype(str).apply(lambda row: row.str.contains(table_search, case=False).any(), axis=1)
             display_df = display_df[mask]
 
         if sort_col in display_df.columns:
             display_df = display_df.sort_values(by=sort_col, ascending=False)
 
-        # CSV Download
         csv_bytes = display_df.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
         col_t_down1, col_t_down2 = st.columns([3, 1])
         with col_t_down1:
@@ -843,440 +866,590 @@ with tab1:
                 "เนื้อที่เสียหาย (ไร่)": "{:,.0f}"
             }),
             use_container_width=True,
-            height=380
+            height=360
         )
 
 
 # =========================================================
-# TAB 2: CLIMATE & HARVEST (สภาพอากาศและสถานการณ์เพาะปลูก)
+# TAB 2: CLIMATE & CROP ADVISORY (ภูมิอากาศและคำแนะนำการเพาะปลูก)
 # =========================================================
 with tab2:
-    st.markdown("### 🌦️ สภาพอากาศและสถานการณ์การเพาะปลูก (Climate & Harvest Dynamics)")
-    st.caption("วิเคราะห์ปริมาณฝน อุณหภูมิ อัตราการเก็บเกี่ยว และความสัมพันธ์กับผลผลิตทางการเกษตรจากข้อมูลตรวจวัดจริงของ สสน. และ กรมอุตุนิยมวิทยา")
+    st.markdown("### 🌦️ ภูมิอากาศ คำแนะนำการเพาะปลูก และการบริหารความเสี่ยง (Climate & Crop Advisory)")
+    st.caption("บูรณาการข้อมูลตรวจวัดจริงของ สสน. HII (IDW 77 จังหวัด) และ กรมอุตุนิยมวิทยา TMD รายวัน เพื่อให้เกษตรกรตัดสินใจเพาะปลูกและเตรียมรับมือความเสี่ยง")
 
-    climate_scope = st.radio(
-        "เลือกมิติการวิเคราะห์สภาพอากาศ (Select Climate Analysis Scope):",
-        options=[
-            "1. การวิเคราะห์ฝนเชิงพื้นที่ 77 จังหวัด vs ผลผลิต (พ.ศ. 2561–2562, สสน. HII)",
-            "2. แนวโน้มฝนสะสมระยะยาวระดับประเทศ (พ.ศ. 2550–2562, สสน. HII)",
-            "3. สถานีตรวจอากาศเพื่อการเกษตรรายวัน (กรมอุตุนิยมวิทยา TMD Open Data API Catalog c1-1-3-7)"
-        ],
-        horizontal=True
+    target_climate_year = st.session_state.selected_year if st.session_state.selected_year in [2561, 2562] else 2562
+    active_crop = st.session_state.selected_product if st.session_state.selected_product != "ทั้งหมด" else "ข้าวนาปี"
+    active_prov = st.session_state.selected_province
+
+    # Extract climate variables for active province if available
+    prov_rain_val = None
+    prov_temp_val = None
+    prov_disaster_val = None
+
+    if active_prov != "ทั้งหมด":
+        if not df_rain_annual.empty and "province" in df_rain_annual.columns:
+            r_match = df_rain_annual[(df_rain_annual["province"] == active_prov) & (df_rain_annual["year"] == target_climate_year)]
+            if not r_match.empty and "rainfall_annual_mm" in r_match.columns:
+                prov_rain_val = float(r_match["rainfall_annual_mm"].iloc[0])
+
+        if not df_temp_annual.empty and "province" in df_temp_annual.columns:
+            t_match = df_temp_annual[(df_temp_annual["province"] == active_prov) & (df_temp_annual["year"] == target_climate_year)]
+            if not t_match.empty and "temp_annual_mean" in t_match.columns:
+                prov_temp_val = float(t_match["temp_annual_mean"].iloc[0])
+
+        if not df_disaster.empty and "province" in df_disaster.columns:
+            d_match = df_disaster[(df_disaster["province"] == active_prov) & (df_disaster["year"] == target_climate_year)]
+            if not d_match.empty and "total_disaster_area_rai" in d_match.columns:
+                prov_disaster_val = float(d_match["total_disaster_area_rai"].iloc[0])
+
+    # Left: Map with Switchable Layers | Right: Decision Intelligence & 5-Pillar Advisory (Requirement B & C)
+    col_tab2_map, col_tab2_dash = st.columns([1.05, 1.15])
+
+    with col_tab2_map:
+        st.markdown("#### 🗺️ แผนที่สภาพอากาศและพื้นที่เสี่ยงภัยพิบัติ")
+        layer_option = st.radio(
+            "เลือกชั้นข้อมูลแผนที่ (Select Climate Map Layer):",
+            options=["🌧️ ปริมาณฝนเชิงพื้นที่ HII (มม.)", "🌡️ อุณหภูมิเฉลี่ย HII (°C)", "⚠️ พื้นที่ประสบภัยพิบัติการเกษตร (ไร่)", "📡 เครือข่ายสถานีตรวจวัด TMD"],
+            horizontal=True,
+            key="tab2_layer_select"
+        )
+
+        layer_key = "rain"
+        if "อุณหภูมิ" in layer_option:
+            layer_key = "temp"
+        elif "ภัยพิบัติ" in layer_option:
+            layer_key = "disaster"
+        elif "สถานี" in layer_option:
+            layer_key = "stations"
+
+        if geojson_data:
+            fig_clim_map = create_climate_disaster_map(
+                df_rain=df_rain_annual,
+                df_temp=df_temp_annual,
+                df_disaster=df_disaster,
+                df_agromet=df_agromet,
+                geojson_data=geojson_data,
+                layer_type=layer_key,
+                year=target_climate_year,
+                selected_province=active_prov if active_prov != "ทั้งหมด" else None
+            )
+            st.plotly_chart(fig_clim_map, use_container_width=True)
+        else:
+            st.info("ไม่พบไฟล์แผนที่ GeoJSON")
+
+        st.markdown("""
+        <div style="font-size: 12px; color: #64748B; background: #F8FAFC; border: 1px solid #E2E8F0; padding: 10px 12px; border-radius: 8px;">
+            📌 <b>ข้อมูลชั้นแผนที่:</b> สสน. HII ฝนเชิงพื้นที่ IDW (มม.), TMD Agromet รายวัน, ปภ. และ กรมส่งเสริมการเกษตร | ข้อมูลแสดงระดับจังหวัดตามข้อเท็จจริงของระบบเปิดภาครัฐ มิได้จำลองระดับแปลง
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_tab2_dash:
+        st.markdown(f"#### 💡 สารสนเทศสภาพอากาศและคำแนะนำสำหรับ **{active_crop}**")
+
+        # 1. TMD Live Observation Card
+        if not df_agromet.empty and "province" in df_agromet.columns:
+            stn_sub = df_agromet[df_agromet["province"] == active_prov] if active_prov != "ทั้งหมด" else df_agromet
+            if not stn_sub.empty:
+                stn_row = stn_sub.iloc[0]
+                stn_name = stn_row.get("station_name", active_prov)
+                t_val = f"{stn_row.get('temp_c', 'N/A')} °C" if pd.notna(stn_row.get('temp_c')) else "N/A"
+                rh_val = f"{stn_row.get('relative_humidity_pct', 'N/A')}%" if pd.notna(stn_row.get('relative_humidity_pct')) else "N/A"
+                r24_col = "rainfall_24h_mm" if "rainfall_24h_mm" in stn_row else ("rainfall_mm" if "rainfall_mm" in stn_row else None)
+                r24_val = f"{stn_row.get(r24_col, 0.0):.1f} มม." if r24_col and pd.notna(stn_row.get(r24_col)) else "0.0 มม."
+                w_val = f"{stn_row.get('wind_speed_kmh', 0.0):.1f} กม./ชม." if pd.notna(stn_row.get('wind_speed_kmh')) else "0.0"
+
+                st.markdown(f"""
+                <div style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 10px; padding: 12px 16px; margin-bottom: 14px;">
+                    <div style="font-weight: 700; color: #166534; font-size: 13.5px; margin-bottom: 6px;">
+                        📡 สถานีตรวจอากาศการเกษตร TMD: <b>{stn_name}</b> ({stn_row.get('province', 'ประเทศไทย')})
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: #1E3A8A;">
+                        <span>🌡️ อุณหภูมิ: <b>{t_val}</b></span>
+                        <span>💧 ความชื้นสัมพัทธ์: <b>{rh_val}</b></span>
+                        <span>🌧️ ฝน 24 ชม.: <b>{r24_val}</b></span>
+                        <span>💨 ลม: <b>{w_val}</b></span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # 2. Climate Risk Status Badges
+        risk_status = calculate_climate_risk_status(prov_rain_val, prov_temp_val, prov_disaster_val)
+        col_r1, col_r2, col_r3 = st.columns(3)
+        with col_r1:
+            c_d = risk_status["drought"]["color"]
+            b_class = "delta-badge-neg" if c_d == "red" else ("delta-badge-pos" if c_d == "green" else "delta-badge-neutral")
+            st.markdown(f"""
+            <div class="kpi-card" style="padding: 10px 14px;">
+                <div class="kpi-label">ภาวะภัยแล้ง / ฝนทิ้งช่วง</div>
+                <div style="font-weight: 700; font-size: 14px;"><span class="{b_class}">{risk_status['drought']['level']}</span></div>
+                <div style="font-size: 11px; color: #64748B; margin-top: 4px;">{risk_status['drought']['desc']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col_r2:
+            c_f = risk_status["flood"]["color"]
+            b_class = "delta-badge-neg" if c_f == "red" else ("delta-badge-pos" if c_f == "green" else "delta-badge-neutral")
+            st.markdown(f"""
+            <div class="kpi-card" style="padding: 10px 14px;">
+                <div class="kpi-label">ความเสี่ยงอุทกภัย / น้ำท่วม</div>
+                <div style="font-weight: 700; font-size: 14px;"><span class="{b_class}">{risk_status['flood']['level']}</span></div>
+                <div style="font-size: 11px; color: #64748B; margin-top: 4px;">{risk_status['flood']['desc']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col_r3:
+            c_h = risk_status["heat"]["color"]
+            b_class = "delta-badge-neg" if c_h == "red" else ("delta-badge-pos" if c_h == "green" else "delta-badge-neutral")
+            st.markdown(f"""
+            <div class="kpi-card" style="padding: 10px 14px;">
+                <div class="kpi-label">ความเครียดความร้อน (Heat)</div>
+                <div style="font-weight: 700; font-size: 14px;"><span class="{b_class}">{risk_status['heat']['level']}</span></div>
+                <div style="font-size: 11px; color: #64748B; margin-top: 4px;">{risk_status['heat']['desc']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # 3. 5-Pillar Decision Advisory "เกษตรกรควรทำอะไร" (Requirement B)
+        advisory_dict = generate_farmer_decision_advisory(
+            crop_name=active_crop,
+            province_name=active_prov if active_prov != "ทั้งหมด" else "ประเทศไทย",
+            rainfall_val=prov_rain_val,
+            temp_val=prov_temp_val,
+            disaster_val=prov_disaster_val,
+            year=target_climate_year
+        )
+
+        st.markdown("#### 🎯 เกษตรกรควรทำอะไร (5 เสาหลักการตัดสินใจ)")
+
+        with st.expander("1. 📌 สถานการณ์ปัจจุบัน (Current Situation)", expanded=True):
+            st.markdown(advisory_dict["current_situation"])
+
+        with st.expander("2. ⚠️ ความเสี่ยงที่ต้องเฝ้าระวัง (Risks to Watch)", expanded=True):
+            for r in advisory_dict["risks_to_watch"]:
+                st.markdown(f"- {r}")
+
+        with st.expander("3. 🚜 สิ่งที่ควรเตรียมตัว (Preparations Needed)", expanded=False):
+            for p in advisory_dict["preparations_needed"]:
+                st.markdown(f"- {p}")
+
+        with st.expander("4. 🌾 การปฏิบัติที่แนะนำ (Recommended Practices)", expanded=False):
+            for prac in advisory_dict["recommended_practices"]:
+                st.markdown(f"- {prac}")
+
+        with st.expander("5. 📡 เงื่อนไขหรือสัญญาณที่ควรติดตามเพิ่มเติม (Signals to Monitor)", expanded=False):
+            for sig in advisory_dict["signals_to_monitor"]:
+                st.markdown(f"- {sig}")
+
+        # 4. Planting Window Guide
+        st.markdown(f"""
+        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 16px; margin-top: 10px;">
+            <div style="font-weight: 700; color: #1B4D3E; font-size: 13.5px;">🌱 คำแนะนำช่วงเวลาเพาะปลูกที่เหมาะสม: {active_crop}</div>
+            <div style="font-size: 13px; color: #334155; margin-top: 4px;">
+                - <b>ช่วงเวลาเพาะปลูกตามปฏิทินเกษตร:</b> {advisory_dict['planting_window']}<br>
+                - <b>ระยะเวลาเจริญเติบโต:</b> {advisory_dict['growth_duration_days']}<br>
+                - <b>ความต้องการน้ำและดิน:</b> {advisory_dict['water_soil_req']}<br>
+                - <b>หน่วยงานวิชาการต้นทาง:</b> {advisory_dict['source_agency']}<br>
+                <div style="font-size: 11.5px; color: #64748B; margin-top: 6px; font-style: italic;">
+                    {advisory_dict['disclaimer']}
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Climate Correlation Analysis Row
+    st.markdown("---")
+    st.markdown("#### 🔬 การวิเคราะห์ความสัมพันธ์เชิงสถิติ: สภาพอากาศ vs ผลผลิต (Climate & Yield Correlations)")
+    st.caption("ทดสอบทางสถิติเพื่อดูว่าปริมาณฝนสะสมมีความสัมพันธ์กับผลผลิตต่อไร่มากน้อยเพียงใด")
+
+    joined_nation = join_climate_agriculture_nationwide(
+        df_ag=df_ag,
+        df_rain_annual=df_rain_annual,
+        df_temp_annual=df_temp_annual,
+        year=target_climate_year,
+        product=active_crop
     )
 
-    if "1. การวิเคราะห์ฝนเชิงพื้นที่ 77 จังหวัด" in climate_scope:
-        st.markdown("#### 🌧️ ฝนเชิงพื้นที่ สสน. HII (IDW) vs ผลผลิตต่อไร่ (77 จังหวัด)")
-        
-        target_climate_year = st.session_state.selected_year if st.session_state.selected_year in [2561, 2562] else 2562
-        joined_nation = join_climate_agriculture_nationwide(
-            df_ag=df_ag,
-            df_rain_annual=df_rain_annual,
-            df_temp_annual=df_temp_annual,
-            year=target_climate_year,
-            product=st.session_state.selected_product if st.session_state.selected_product != "ทั้งหมด" else "ข้าวนาปี"
-        )
-
-        if joined_nation.empty:
-            st.warning(f"ไม่มีข้อมูลการเพาะปลูกที่จับคู่กับฝนเชิงพื้นที่ในปี {target_climate_year} (ชุดข้อมูลฝนเชิงพื้นที่ครอบคลุม พ.ศ. 2561–2562)")
-        else:
-            col_c1, col_c2 = st.columns([1.1, 0.9])
-            with col_c1:
-                stats_nat_rain = calculate_bivariate_stats(joined_nation["rainfall_annual_mm"], joined_nation["calc_yield_per_rai"])
-                fig_nat_scat = create_bivariate_scatter_chart(
-                    joined_nation,
-                    x_col="rainfall_annual_mm",
-                    y_col="calc_yield_per_rai",
-                    title=f"ฝนเชิงพื้นที่ HII vs ผลผลิตต่อไร่ ({st.session_state.selected_product} | ปี พ.ศ. {target_climate_year})",
-                    x_label="ปริมาณฝนสะสมทั้งปี",
-                    y_label="ผลผลิตต่อไร่",
-                    x_unit="มม.",
-                    y_unit="กก./ไร่",
-                    text_col="province",
-                    correlation_val=stats_nat_rain["pearson_r"] if stats_nat_rain["is_valid"] else None,
-                    p_val=stats_nat_rain["pearson_p"] if stats_nat_rain["is_valid"] else None,
-                    n_samples=stats_nat_rain["n"] if stats_nat_rain["is_valid"] else None
-                )
-                st.plotly_chart(fig_nat_scat, use_container_width=True)
-
-            with col_c2:
-                st.markdown("##### 💡 การแปลผลทางสถิติและข้อพึงระวัง")
-                interp_nat = generate_climate_interpretation(
-                    bivariate_result=stats_nat_rain,
-                    crop_name=st.session_state.selected_product,
-                    climate_var_name="ปริมาณฝนเชิงพื้นที่ HII (IDW)",
-                    ag_var_name="ผลผลิตต่อไร่ (Yield)",
-                    geo_scope=f"77 จังหวัดทั่วประเทศ (ปี {target_climate_year})",
-                    year_range=str(target_climate_year)
-                )
-                st.markdown(interp_nat)
-
-                st.markdown("""
-                <div style="background-color: #EFF6FF; border-left: 4px solid #3B82F6; padding: 12px 14px; border-radius: 6px; margin-top: 12px;">
-                    <span style="font-weight: 600; font-size: 13px; color: #1E40AF;">💡 สหสัมพันธ์ (Correlation) ไม่เท่ากับ ความเป็นเหตุเป็นผล (Causation):</span><br>
-                    <span style="font-size: 12.5px; color: #1E3A8A; line-height: 1.5;">
-                        ความสัมพันธ์เชิงสถิติ (ค่า r) สะท้อนทิศทางการเคลื่อนไหวร่วมกันของข้อมูลเท่านั้น ไม่ได้พิสูจน์ว่าฝนเป็นสาเหตุเดียวของผลผลิตที่เปลี่ยนแปลง เนื่องจากผลผลิตทางการเกษตรยังขึ้นอยู่กับระบบชลประทาน ธาตุอาหารในดิน การป้องกันโรคแมลง และการปฏิบัติแปลงของเกษตรกร
-                    </span>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # Seasonal Rain (May-Oct) vs Annual Rain
-            st.markdown("---")
-            st.markdown("#### ⏳ ช่วงเวลาฝนตก (ฝนฤดูเพาะปลูก พ.ค.–ต.ค.) สำคัญกว่าฝนสะสมทั้งปี")
-            df_season_rain = analyze_growing_season_rainfall(
-                df_rain_monthly, df_ag,
-                crop=st.session_state.selected_product if st.session_state.selected_product != "ทั้งหมด" else "ข้าวนาปี",
-                year=target_climate_year
+    if not joined_nation.empty:
+        col_cr1, col_cr2 = st.columns([1.1, 0.9])
+        with col_cr1:
+            stats_nat_rain = calculate_bivariate_stats(joined_nation["rainfall_annual_mm"], joined_nation["calc_yield_per_rai"])
+            fig_nat_scat = create_bivariate_scatter_chart(
+                joined_nation,
+                x_col="rainfall_annual_mm",
+                y_col="calc_yield_per_rai",
+                title=f"ฝนเชิงพื้นที่ HII vs ผลผลิตต่อไร่ ({active_crop} | ปี พ.ศ. {target_climate_year})",
+                x_label="ปริมาณฝนสะสมทั้งปี",
+                y_label="ผลผลิตต่อไร่",
+                x_unit="มม.",
+                y_unit="กก./ไร่",
+                text_col="province",
+                correlation_val=stats_nat_rain["pearson_r"] if stats_nat_rain["is_valid"] else None,
+                p_val=stats_nat_rain["pearson_p"] if stats_nat_rain["is_valid"] else None,
+                n_samples=stats_nat_rain["n"] if stats_nat_rain["is_valid"] else None
             )
-            col_s1, col_s2 = st.columns([1.1, 0.9])
-            with col_s1:
-                fig_season = create_seasonal_rain_vs_yield_chart(df_season_rain, st.session_state.selected_product, target_climate_year)
-                st.plotly_chart(fig_season, use_container_width=True)
-            with col_s2:
-                st.markdown("""
-                <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 16px; border-radius: 8px;">
-                    <span style="font-weight: 600; color: #1B4D3E;">🌾 ปัจจัยจังหวะเวลาของฝน (Rainfall Timing):</span><br>
-                    <span style="font-size: 13px; color: #475569; line-height: 1.6;">
-                        การรวมปริมาณฝนทั้งปีอาจบดบังสภาวะแห้งแล้งจริง เนื่องจากพืชเศรษฐกิจต้องการน้ำในระยะวิกฤต เช่น ข้าวต้องการน้ำในระยะแตกกอและตั้งท้องออกรวง (มิ.ย.–ก.ย.) หากฝนตกหนักนอกฤดูเพาะปลูก (เช่น พ.ย.–ธ.ค.) อาจกลายเป็นอุทกภัยสร้างความเสียหายต่อการเก็บเกี่ยวแทนที่จะช่วยเพิ่มผลผลิต
-                    </span>
-                </div>
-                """, unsafe_allow_html=True)
+            st.plotly_chart(fig_nat_scat, use_container_width=True)
 
-    elif "2. แนวโน้มฝนสะสมระยะยาวระดับประเทศ" in climate_scope:
-        st.markdown("#### 📈 ฝนสะสมเฉลี่ยทั้งประเทศระยะยาว vs ผลผลิตภาพรวม (พ.ศ. 2550–2562)")
+        with col_cr2:
+            st.markdown("##### 💡 การแปลผลทางสถิติและข้อพึงระวัง")
+            interp_nat = generate_climate_interpretation(
+                bivariate_result=stats_nat_rain,
+                crop_name=active_crop,
+                climate_var_name="ปริมาณฝนเชิงพื้นที่ HII (IDW)",
+                ag_var_name="ผลผลิตต่อไร่ (Yield)",
+                geo_scope=f"77 จังหวัดทั่วประเทศ (ปี {target_climate_year})",
+                year_range=str(target_climate_year)
+            )
+            st.markdown(interp_nat)
 
-        nat_ag = df_ag[(df_ag["geo_level"] == "country")].copy()
-        if st.session_state.selected_product != "ทั้งหมด":
-            nat_ag = nat_ag[nat_ag["product"] == st.session_state.selected_product]
+            st.markdown("""
+            <div style="background-color: #EFF6FF; border-left: 4px solid #3B82F6; padding: 12px 14px; border-radius: 6px; margin-top: 10px;">
+                <span style="font-weight: 600; font-size: 13px; color: #1E40AF;">💡 สหสัมพันธ์ (Correlation) ไม่เท่ากับ ความเป็นเหตุเป็นผล (Causation):</span><br>
+                <span style="font-size: 12.5px; color: #1E3A8A; line-height: 1.5;">
+                    ค่า $r$ สะท้อนทิศทางการเคลื่อนไหวร่วมกันเชิงสถิติเท่านั้น ไม่ได้พิสูจน์ว่าฝนเป็นสาเหตุเดียวของผลผลิตที่เปลี่ยนแปลง เนื่องจากผลผลิตทางการเกษตรยังขึ้นอยู่กับระบบชลประทาน ธาตุอาหารในดิน การป้องกันโรคแมลง และการปฏิบัติแปลงของเกษตรกร
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
 
-        nat_ag_summary = nat_ag.groupby("year").agg(
-            production_ton=("production_ton", "sum"),
-            area_harvest_rai=("area_harvest_rai", "sum")
-        ).reset_index()
-        nat_ag_summary["calc_yield_per_rai"] = nat_ag_summary["production_ton"] * 1000.0 / nat_ag_summary["area_harvest_rai"]
-
-        joined_nat_long = pd.merge(
-            nat_ag_summary,
-            df_nat_annual[["year", "rainfall_annual_mm"]],
-            on="year",
-            how="inner"
-        )
-
-        if not joined_nat_long.empty:
-            col_l1, col_l2 = st.columns([1.1, 0.9])
-            with col_l1:
-                stats_long = calculate_bivariate_stats(joined_nat_long["rainfall_annual_mm"], joined_nat_long["production_ton"])
-                fig_long = create_bivariate_scatter_chart(
-                    joined_nat_long,
-                    x_col="rainfall_annual_mm",
-                    y_col="production_ton",
-                    title=f"ฝนสะสมเฉลี่ยประเทศ vs ผลผลิตรวม ({st.session_state.selected_product})",
-                    x_label="ฝนสะสมเฉลี่ยทั้งประเทศ (HII)",
-                    y_label="ผลผลิตรวม",
-                    x_unit="มม.",
-                    y_unit="ตัน",
-                    text_col="year",
-                    correlation_val=stats_long["pearson_r"] if stats_long["is_valid"] else None,
-                    p_val=stats_long["pearson_p"] if stats_long["is_valid"] else None,
-                    n_samples=stats_long["n"] if stats_long["is_valid"] else None
-                )
-                st.plotly_chart(fig_long, use_container_width=True)
-
-            with col_l2:
-                st.markdown("##### 💡 การแปลผลแนวโน้มฝนระดับประเทศระยะยาว")
-                st.markdown(
-                    f"- **จำนวนปีที่วิเคราะห์:** {len(joined_nat_long)} ปี (พ.ศ. {int(joined_nat_long['year'].min())}–{int(joined_nat_long['year'].max())})\n"
-                    f"- **ค่าสหสัมพันธ์เพียร์สัน (r):** {stats_long['pearson_r']:.3f} (p-value: {stats_long['pearson_p']:.4f})\n"
-                    f"- **ข้อพึงระวัง:** ข้อมูลระดับประเทศเป็นการรวมยอดพื้นที่ทั้งหมด ทำให้ไม่เห็นความแตกต่างของภัยแล้งเฉพาะจุด (Spatial Heterogeneity)"
-                )
-
-                # Forecast / Statistical Projection Note
-                st.markdown("""
-                <div style="background-color: #FEF3C7; border: 1px solid #FDE68A; padding: 12px; border-radius: 6px; margin-top: 10px;">
-                    <span style="font-weight: 600; font-size: 13px; color: #92400E;">🔮 ค่าคาดการณ์เชิงสถิติ (Statistical Projections):</span><br>
-                    <span style="font-size: 12px; color: #78350F;">
-                        การพยากรณ์ผลผลิตในอนาคตจากโมเดลการถดถอยเชิงเส้น เป็นเพียงค่าประมาณการภายใต้สมมติฐานว่าแนวโน้มสภาพอากาศคงที่ มิใช่การรับประกันผลผลิตจริงในอนาคต
-                    </span>
-                </div>
-                """, unsafe_allow_html=True)
-
+        # Seasonal Rain (May-Oct) vs Annual Rain
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### ⏳ ช่วงเวลาฝนตก (ฝนฤดูเพาะปลูก พ.ค.–ต.ค.) สำคัญกว่าฝนสะสมทั้งปี")
+        df_season_rain = analyze_growing_season_rainfall(df_rain_monthly, df_ag, crop=active_crop, year=target_climate_year)
+        col_s1, col_s2 = st.columns([1.1, 0.9])
+        with col_s1:
+            fig_season = create_seasonal_rain_vs_yield_chart(df_season_rain, active_crop, target_climate_year)
+            st.plotly_chart(fig_season, use_container_width=True)
+        with col_s2:
+            st.markdown("""
+            <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 16px; border-radius: 8px;">
+                <span style="font-weight: 600; color: #1B4D3E;">🌾 ปัจจัยจังหวะเวลาของฝน (Rainfall Timing):</span><br>
+                <span style="font-size: 13px; color: #475569; line-height: 1.6;">
+                    การรวมปริมาณฝนทั้งปีอาจบดบังสภาวะแห้งแล้งจริง เนื่องจากพืชเศรษฐกิจต้องการน้ำในระยะวิกฤต เช่น ข้าวต้องการน้ำในระยะแตกกอและตั้งท้องออกรวง (มิ.ย.–ก.ย.) หากฝนตกหนักนอกฤดูเพาะปลูก (เช่น พ.ย.–ธ.ค.) อาจกลายเป็นอุทกภัยสร้างความเสียหายต่อการเก็บเกี่ยวแทนที่จะช่วยเพิ่มผลผลิต
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
     else:
-        st.markdown("#### 📡 ข้อมูลตรวจวัดจากสถานีอุตุนิยมวิทยาเพื่อการเกษตรรายวัน (TMD Daily Agromet)")
-        st.caption("แหล่งข้อมูล: กรมอุตุนิยมวิทยา (TMD Open Data API Catalog c1-1-3-7: WeatherTodayByAgro)")
+        st.info("ไม่มีข้อมูลจับคู่สภาพอากาศและผลผลิตสำหรับปีนี้")
 
-        if df_agromet.empty:
-            st.info("ไม่มีข้อมูลตรวจวัดสถานี TMD รายวันในขณะนี้")
+
+# =========================================================
+# TAB 3: MARKET & PRICE INTELLIGENCE (ตลาดและสารสนเทศราคา)
+# =========================================================
+with tab3:
+    st.markdown("### 💰 ตลาด สารสนเทศราคา และส่วนต่างกำไร (Market & Price Intelligence)")
+    st.caption("ข้อมูลราคาสินค้าเกษตรหน้าฟาร์มจริงจากสำนักงานเศรษฐกิจการเกษตร (สศก.) และ ศูนย์ข้อมูลเกษตรแห่งชาติ (NABC) พ.ศ. 2561–2562")
+
+    # Determine crop for price tab
+    price_crops = sorted(df_prices["product"].dropna().unique().tolist()) if not df_prices.empty else []
+    default_price_crop = st.session_state.selected_product if st.session_state.selected_product in price_crops else (price_crops[0] if price_crops else "ข้าวนาปี")
+
+    col_t3_crop, col_t3_year = st.columns([2, 1])
+    with col_t3_crop:
+        selected_price_crop = st.selectbox(
+            "เลือกสินค้าเกษตรสำหรับวิเคราะห์ราคาตลาด:",
+            options=price_crops if price_crops else ["ข้าวนาปี"],
+            index=price_crops.index(default_price_crop) if default_price_crop in price_crops else 0,
+            key="tab3_price_crop_select"
+        )
+    with col_t3_year:
+        st.selectbox("รอบปีข้อมูลราคา:", options=["พ.ศ. 2561–2562 (สศก. Open Data)"], disabled=True)
+
+    # 2-Column Responsive Layout: Left = Map | Right = Price Intelligence (Requirement B & C)
+    col_t3_map, col_t3_dash = st.columns([1.05, 1.15])
+
+    with col_t3_map:
+        st.markdown(f"#### 🗺️ แผนที่การกระจายผลผลิตในตลาด: **{selected_price_crop}**")
+        if geojson_data:
+            fig_market_map = create_market_price_map(
+                df_ag=df_ag,
+                geojson_data=geojson_data,
+                crop_name=selected_price_crop,
+                year=st.session_state.selected_year if st.session_state.selected_year in available_years else latest_year,
+                selected_province=st.session_state.selected_province if st.session_state.selected_province != "ทั้งหมด" else None
+            )
+            st.plotly_chart(fig_market_map, use_container_width=True)
         else:
-            # Schema Validation (Requirement 8)
-            is_valid, missing_cols = validate_agromet_schema(df_agromet)
-            if not is_valid:
-                st.warning(
-                    f"⚠️ ชุดข้อมูลสถานี TMD ขาดคอลัมน์: {', '.join(missing_cols)} "
-                    f"(แหล่งข้อมูล: กรมอุตุนิยมวิทยา TMD Open Data API Catalog c1-1-3-7)"
-                )
+            st.info("ไม่พบไฟล์แผนที่ GeoJSON")
 
-            # Defensive projection of columns that exist in DataFrame
-            expected_cols = [
-                "station_name", "province", "temp_c", "relative_humidity_pct",
-                "rainfall_24h_mm", "wind_speed_kmh", "data_source"
-            ]
-            display_cols = [c for c in expected_cols if c in df_agromet.columns]
+        # Mandatory Spatial Granularity Price Disclaimer (Requirement B.Tab3)
+        st.markdown("""
+        <div style="background-color: #FFFBEB; border-left: 4px solid #F59E0B; padding: 12px 14px; border-radius: 6px; font-size: 12px; color: #92400E; line-height: 1.5;">
+            📌 <b>หมายเหตุความโปร่งใสด้านระดับพื้นที่ของข้อมูลราคา:</b><br>
+            ข้อมูลราคาหน้าฟาร์มที่ สศก./NABC สำรวจและเผยแพร่เป็น <b>ราคาเฉลี่ยระดับประเทศ (National Benchmark)</b> ในแต่ละสัปดาห์ 
+            แดชบอร์ดนี้จึงแสดงแผนที่ฝั่งซ้ายเป็น <b>สัดส่วนและปริมาณผลผลิตเข้าสู่ตลาดรายจังหวัด</b> เพื่อชี้แหล่งอุปทานสำคัญ 
+            โดยไม่นำราคาเฉลี่ยระดับประเทศไปสวมเป็นราคาของแต่ละจังหวัด เพื่อป้องกันการชี้นำผิดพลาดตามมาตรฐาน Data Quality
+        </div>
+        """, unsafe_allow_html=True)
 
-            # Filter by selected province if filtered above
-            selected_prov = st.session_state.selected_province
-            if selected_prov != "ทั้งหมด" and "province" in df_agromet.columns:
-                df_prov_stn = df_agromet[df_agromet["province"] == selected_prov]
-                if not df_prov_stn.empty:
-                    df_target_display = df_prov_stn
-                    st.info(f"📍 แสดงผลข้อมูลสถานีตรวจวัดเฉพาะจังหวัด **{selected_prov}** (จำนวน {len(df_prov_stn)} สถานี)")
-                else:
-                    df_target_display = df_agromet
-                    st.info(
-                        f"📍 ไม่พบสถานีตรวจวัดการเกษตรเฉพาะในจังหวัด **{selected_prov}** "
-                        f"จึงแสดงข้อมูลสถานีเครือข่ายทั่วประเทศทั้งหมด ({len(df_agromet)} สถานี)"
-                    )
-            else:
-                df_target_display = df_agromet
+    with col_t3_dash:
+        st.markdown(f"#### 📊 สารสนเทศราคารายสัปดาห์: **{selected_price_crop}**")
 
-            # Display KPI summary metrics for meteorological indicators
-            col_st1, col_st2, col_st3, col_st4 = st.columns(4)
-            with col_st1:
-                st.metric("จำนวนสถานีในตาราง", f"{len(df_target_display):,} แห่ง")
-            with col_st2:
-                if "temp_c" in df_target_display.columns:
-                    avg_t = df_target_display["temp_c"].dropna().mean()
-                    st.metric("อุณหภูมิเฉลี่ย", f"{avg_t:.1f} °C" if pd.notna(avg_t) else "ไม่มีข้อมูล")
-                else:
-                    st.metric("อุณหภูมิเฉลี่ย", "ไม่มีข้อมูล")
-            with col_st3:
-                if "relative_humidity_pct" in df_target_display.columns:
-                    avg_rh = df_target_display["relative_humidity_pct"].dropna().mean()
-                    st.metric("ความชื้นสัมพัทธ์เฉลี่ย", f"{avg_rh:.0f}%" if pd.notna(avg_rh) else "ไม่มีข้อมูล")
-                else:
-                    st.metric("ความชื้นสัมพัทธ์เฉลี่ย", "ไม่มีข้อมูล")
-            with col_st4:
-                rain_col = "rainfall_24h_mm" if "rainfall_24h_mm" in df_target_display.columns else ("rainfall_mm" if "rainfall_mm" in df_target_display.columns else None)
-                if rain_col:
-                    stns_with_rain = df_target_display[df_target_display[rain_col] > 0]
-                    st.metric("สถานีที่มีฝนรอบ 24 ชม.", f"{len(stns_with_rain)} แห่ง")
-                else:
-                    st.metric("สถานีที่มีฝนรอบ 24 ชม.", "ไม่มีข้อมูล")
+        price_metrics = compute_price_summary_metrics(df_prices, selected_price_crop)
 
-            # Friendly column headers in Thai
-            th_rename = {
-                "station_name": "ชื่อสถานีตรวจวัด",
-                "province": "จังหวัด",
-                "temp_c": "อุณหภูมิ (°C)",
-                "relative_humidity_pct": "ความชื้นสัมพัทธ์ (%)",
-                "rainfall_24h_mm": "ฝน 24 ชม. (มม.)",
-                "rainfall_mm": "ฝน 24 ชม. (มม.)",
-                "wind_speed_kmh": "ความเร็วลม (กม./ชม.)",
-                "data_source": "แหล่งข้อมูล"
-            }
+        if price_metrics.get("has_data", False):
+            # 4 Price KPI Cards
+            col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+            with col_p1:
+                st.markdown(f"""
+                <div class="kpi-card" style="padding: 12px 14px;">
+                    <div class="kpi-label">ราคาล่าสุด</div>
+                    <div class="kpi-value">{price_metrics['latest_price']:,.2f}<span class="kpi-unit">{price_metrics['unit']}</span></div>
+                    <div class="kpi-sub"><span class="delta-badge-pos">ล่าสุด: {price_metrics['latest_period']}</span></div>
+                </div>
+                """, unsafe_allow_html=True)
 
-            st.dataframe(
-                df_target_display[display_cols].rename(columns=th_rename),
+            with col_p2:
+                st.markdown(f"""
+                <div class="kpi-card" style="padding: 12px 14px;">
+                    <div class="kpi-label">ราคาเฉลี่ยรอบปี</div>
+                    <div class="kpi-value">{price_metrics['mean_price']:,.2f}<span class="kpi-unit">{price_metrics['unit']}</span></div>
+                    <div class="kpi-sub"><span class="delta-badge-neutral">สศก. 2561-2562</span></div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with col_p3:
+                st.markdown(f"""
+                <div class="kpi-card" style="padding: 12px 14px;">
+                    <div class="kpi-label">ราคาสูงสุด-ต่ำสุด</div>
+                    <div class="kpi-value" style="font-size: 19px;">{price_metrics['max_price']:,.2f}<span class="kpi-unit">/ {price_metrics['min_price']:,.2f}</span></div>
+                    <div class="kpi-sub"><span class="delta-badge-neutral">{price_metrics['unit']}</span></div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with col_p4:
+                wow_badge = "delta-badge-pos" if price_metrics['wow_change'] >= 0 else "delta-badge-neg"
+                st.markdown(f"""
+                <div class="kpi-card" style="padding: 12px 14px;">
+                    <div class="kpi-label">การเปลี่ยนแปลงรายสัปดาห์</div>
+                    <div class="kpi-value" style="font-size: 19px;"><span class="{wow_badge}">{price_metrics['wow_change']:+.2f} ({price_metrics['wow_pct']:+.1f}%)</span></div>
+                    <div class="kpi-sub"><span class="delta-badge-neutral">เทียบสัปดาห์ก่อน</span></div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # Weekly Price Trend Chart
+            fig_p_trend = create_price_trend_chart(df_prices, selected_price_crop)
+            st.plotly_chart(fig_p_trend, use_container_width=True)
+
+            # Cost vs Price Margin Comparison
+            st.markdown("---")
+            st.markdown("#### ⚖️ การเปรียบเทียบราคาขายเฉลี่ย vs ต้นทุนการผลิตต่อหน่วย")
+            margin_summary = compare_production_cost_and_price(df_cost, df_prices, crop=selected_price_crop, year=2562)
+            fig_margin = create_cost_price_margin_chart(margin_summary)
+            st.plotly_chart(fig_margin, use_container_width=True)
+
+        else:
+            st.info(f"ไม่มีข้อมูลสถิติราคาสำหรับ {selected_price_crop} ในระบบ")
+
+    # Searchable & Sortable Price Table with CSV Export
+    st.markdown("---")
+    st.markdown("### 📋 ตารางสถิติราคาหน้าฟาร์มรายสัปดาห์ (Searchable Price Table)")
+    if not df_prices.empty:
+        price_sub = df_prices[df_prices["product"] == selected_price_crop].copy() if selected_price_crop != "ทั้งหมด" else df_prices.copy()
+        price_display = price_sub.sort_values(by=["year", "month", "week"], ascending=False).reset_index(drop=True)
+
+        col_pr_ren = {
+            "product": "ชนิดสินค้าเกษตร",
+            "year": "ปี พ.ศ.",
+            "month": "เดือน",
+            "week": "สัปดาห์ที่",
+            "price_baht_per_kg": "ราคาหน้าฟาร์ม (บาท/กก.)",
+            "price_baht_per_ton": "ราคาหน้าฟาร์ม (บาท/ตัน)"
+        }
+        price_table = price_display.rename(columns={k: v for k, v in col_pr_ren.items() if k in price_display.columns})
+
+        col_pt1, col_pt2 = st.columns([3, 1])
+        with col_pt1:
+            st.caption(f"แสดงข้อมูลราคารวมทั้งหมด {len(price_table):,} สัปดาห์ (สำนักงานเศรษฐกิจการเกษตร สศก.)")
+        with col_pt2:
+            p_csv = price_table.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+            st.download_button(
+                label="📥 ดาวน์โหลดข้อมูลราคา (CSV)",
+                data=p_csv,
+                file_name=f"thai_farmgate_prices_{selected_price_crop}.csv",
+                mime="text/csv",
                 use_container_width=True
             )
 
+        st.dataframe(price_table, use_container_width=True, height=280)
+
+    # Price Outlook & Future Projection Disclaimer (Requirement B.Tab3)
+    st.markdown("""
+    <div style="background-color: #FEF2F2; border-left: 4px solid #EF4444; padding: 12px 16px; border-radius: 6px; margin-top: 14px;">
+        <span style="font-weight: 700; color: #991B1B; font-size: 13px;">⚠️ ข้อพึงระวังเกี่ยวกับแนวโน้มราคาอนาคต (Price Outlook Disclaimer):</span><br>
+        <span style="font-size: 12.5px; color: #7F1D1D; line-height: 1.5;">
+            ราคาสินค้าเกษตรมีความผันผวนสูงตามจังหวะฤดูกาลเก็บเกี่ยว (Supply Shock) ปริมาณสต็อกโลก และสภาวะเศรษฐกิจมหภาค 
+            การพยากรณ์ราคาอนาคตจำเป็นต้องอาศัยแบบจำลองเศรษฐมิติที่ผ่านการทดสอบย้อนหลัง (Backtesting) มิควรคาดเดาโดยไม่มีหลักฐาน 
+            เกษตรกรควรติดตามราคาซื้อขายจริงแบบรายวันจากจุดรับซื้อในพื้นที่ และใช้สัญญาซื้อขายล่วงหน้าหรือการรวมกลุ่มเกษตรกรเพื่อกระจายความเสี่ยง
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # =========================================================
-# TAB 3: PRODUCTION FACTORS (ปัจจัยที่เกี่ยวข้องกับผลผลิต)
+# TAB 4: PRODUCTION & FARM ECONOMICS (ผลผลิตและเศรษฐศาสตร์ฟาร์ม)
 # =========================================================
-with tab3:
-    st.markdown("### 🚜 ปัจจัยที่เกี่ยวข้องกับผลผลิตทางการเกษตร (Crop Production Drivers)")
-    st.caption("วิเคราะห์ปัจจัยขับเคลื่อนผลผลิตนอกเหนือจากสภาพอากาศ: ระบบชลประทาน, ดิน Agri-Map, เทคโนโลยีเครื่องจักรกล, โครงสร้างต้นทุน และภัยพิบัติ")
+with tab4:
+    st.markdown("### 🚜 ผลผลิตและเศรษฐศาสตร์ฟาร์ม (Production Drivers & Farm Economics)")
+    st.caption("วิเคราะห์ปัจจัยขับเคลื่อนผลผลิต (ระบบชลประทาน, ดิน Agri-Map, ต้นทุนเครื่องจักรกล, ภัยธรรมชาติ) และเครื่องคำนวณกำไรสุทธิฟาร์ม")
 
     driver_crop = st.session_state.selected_product if st.session_state.selected_product != "ทั้งหมด" else "ข้าวนาปี"
     driver_year = st.session_state.selected_year if st.session_state.selected_year in [2561, 2562] else 2562
     driver_prov = st.session_state.selected_province
 
-    st.info(
-        f"🔍 **ตัวแปรวิเคราะห์ปัจจุบัน:** ชนิดพืช = **{driver_crop}** | ปี พ.ศ. = **{driver_year}** | "
-        f"จังหวัด = **{driver_prov}** (ซิงค์ตามตัวกรองหลักด้านบน)"
-    )
+    # 2-Column Layout: Left = Production Driver Map | Right = Drivers & Calculator (Requirement B & C)
+    col_t4_map, col_t4_dash = st.columns([1.05, 1.15])
 
-    # Local Agromet Context for the farmer if available
-    if not df_agromet.empty and "province" in df_agromet.columns and driver_prov != "ทั้งหมด":
-        prov_agromet = df_agromet[df_agromet["province"] == driver_prov]
-        if not prov_agromet.empty:
-            p_row = prov_agromet.iloc[0]
-            st.markdown(
-                f"<div style='background-color: #F0FDF4; border: 1px solid #BBF7D0; padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 13px; color: #166534;'>"
-                f"📡 <b>สภาพอากาศสถานีตรวจวัดการเกษตร ณ ปัจจุบัน ({p_row.get('station_name', driver_prov)}):</b> "
-                f"อุณหภูมิ <b>{p_row.get('temp_c', 'N/A')} °C</b> | "
-                f"ความชื้น <b>{p_row.get('relative_humidity_pct', 'N/A')}%</b> | "
-                f"ฝนรอบ 24 ชม. <b>{p_row.get('rainfall_24h_mm', 0.0):.1f} มม.</b> | "
-                f"ความเร็วลม <b>{p_row.get('wind_speed_kmh', 0.0):.1f} กม./ชม.</b>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
-
-    # 1. Water & Irrigation
-    st.markdown("#### 1. 💧 แหล่งน้ำและระบบชลประทาน (RID & OAE)")
-    df_irrig_yield = join_irrigation_and_yield(df_ag, df_irrig, crop=driver_crop, year=driver_year)
-
-    col_ir1, col_ir2 = st.columns([1.1, 0.9])
-    with col_ir1:
-        fig_irrig = create_irrigation_vs_yield_chart(df_irrig_yield, driver_crop, driver_year)
-        st.plotly_chart(fig_irrig, use_container_width=True)
-    with col_ir2:
-        st.markdown("##### 💡 บทบาทของระบบชลประทาน")
-        st.markdown(
-            "- **การควบคุมน้ำสม่ำเสมอ:** พื้นที่ชลประทานสามารถรักษาระดับน้ำให้เหมาะสมกับระยะการเจริญเติบโตของพืช ทำให้ดูดซึมปุ๋ยได้เต็มที่\n"
-            "- **ลดความเสี่ยงฝนทิ้งช่วง:** เกษตรกรในเขตชลประทานไม่ต้องพึ่งพาฝนฟ้าอากาศเพียงอย่างเดียว สามารถปลูกพืชรอบสอง (เช่น ข้าวนาปรัง) ได้อย่างมั่นคง"
+    with col_t4_map:
+        st.markdown("#### 🗺️ แผนที่ปัจจัยขับเคลื่อนผลผลิตการเกษตร")
+        driver_layer = st.radio(
+            "เลือกตัวแปรขับเคลื่อนผลผลิต (Select Driver Map Layer):",
+            options=["⚖️ ผลผลิตต่อไร่ (สศก. กก./ไร่)", "💧 สัดส่วนพื้นที่ชลประทาน (RID %)", "🌱 ความเหมาะสมของดิน S1+S2 (Agri-Map %)", "⚠️ พื้นที่ประสบภัยพิบัติ (ปภ. ไร่)"],
+            horizontal=True,
+            key="tab4_driver_layer_select"
         )
 
-    # 2. Soil Suitability (Agri-Map)
-    st.markdown("---")
-    st.markdown("#### 2. 🌱 ความเหมาะสมของดินตามระบบ Agri-Map (กรมพัฒนาที่ดิน LDD)")
-    fig_soil = create_soil_suitability_bar_chart(df_soil, driver_crop, top_n=15)
-    st.plotly_chart(fig_soil, use_container_width=True)
+        d_layer_key = "yield"
+        if "ชลประทาน" in driver_layer:
+            d_layer_key = "irrigation"
+        elif "ดิน" in driver_layer:
+            d_layer_key = "soil"
+        elif "ภัยพิบัติ" in driver_layer:
+            d_layer_key = "disaster"
 
-    st.markdown("""
-    > [!TIP]
-    > **แนวทางปฏิบัติของกรมพัฒนาที่ดิน (Agri-Map Guidance):**
-    > - **พื้นที่ S1 & S2 (เหมาะสมสูง-ปานกลาง):** ควรรักษาความอุดมสมบูรณ์และใช้ปุ๋ยสั่งตัดตามค่าวิเคราะห์ดิน
-    > - **พื้นที่ S3 (เหมาะสมน้อย):** ควรปรับปรุงโครงสร้างดินด้วยอินทรียวัตถุ ปุ๋ยคอก หรือปุ๋ยพืชสด
-    > - **พื้นที่ N (ไม่เหมาะสม):** ควรพิจารณาปรับเปลี่ยนไปสู่พืชชนิดอื่นที่เหมาะสมกับสภาพดินตามหลักการ Zoning
-    """)
-
-    # 3. Disasters & Risk (Flood & Drought)
-    st.markdown("---")
-    st.markdown("#### 3. ⚠️ ภัยธรรมชาติ น้ำท่วม และภัยแล้ง (DOAE & DDPM)")
-    fig_dis = create_disaster_impact_chart(df_disaster, driver_year, top_n=12)
-    st.plotly_chart(fig_dis, use_container_width=True)
-
-    # 4. Inputs & Mechanization Cost Structure
-    st.markdown("---")
-    st.markdown("#### 4. ⚙️ เทคโนโลยี เครื่องจักรกล และโครงสร้างต้นทุนการผลิต (OAE)")
-    cost_summary = compare_production_cost_and_price(df_cost, df_prices, crop=driver_crop, year=driver_year)
-
-    if cost_summary.get("has_data", False):
-        col_c_ch1, col_c_ch2 = st.columns([1.1, 0.9])
-        with col_c_ch1:
-            fig_cost_str = create_cost_structure_breakdown_chart(
-                cost_summary["cost_breakdown"], driver_crop, cost_summary["total_cost_rai"], driver_year
+        if geojson_data:
+            fig_driver_map = create_production_driver_map(
+                df_ag=df_ag,
+                df_irrig=df_irrig,
+                df_soil=df_soil,
+                df_disaster=df_disaster,
+                geojson_data=geojson_data,
+                layer_type=d_layer_key,
+                crop_name=driver_crop,
+                year=driver_year,
+                selected_province=driver_prov if driver_prov != "ทั้งหมด" else None
             )
-            st.plotly_chart(fig_cost_str, use_container_width=True)
-        with col_c_ch2:
-            st.markdown("##### 💡 นัยสำคัญของการใช้เครื่องจักรกล")
-            st.markdown(
-                f"- **สัดส่วนค่าบริการเครื่องจักร ({cost_summary['mechanization_share_pct']:.1f}%):** ปัจจุบันการไถเตรียมดินและเกี่ยวนวดปรับเปลี่ยนสู่เครื่องจักรเกือบสมบูรณ์ ช่วยแก้ไขปัญหาขาดแคลนแรงงานสูงอายุ\n"
-                f"- **ค่าปุ๋ยและสารเคมี:** เป็นต้นทุนปัจจัยแปรผันที่สำคัญ เกษตรกรควรใส่ปุ๋ยตามค่าวิเคราะห์ดินเพื่อลดต้นทุนส่วนเกิน"
-            )
-
-
-# =========================================================
-# TAB 4: FARM ECONOMICS (ราคา ต้นทุน และความคุ้มค่า)
-# =========================================================
-with tab4:
-    st.markdown("### 💰 ราคา ต้นทุน และความคุ้มค่าทางเศรษฐศาสตร์ฟาร์ม (Farm Economics)")
-    st.caption("ข้อมูลราคาสินค้าเกษตรหน้าฟาร์มจริงจาก สศก., โครงสร้างต้นทุน และเครื่องคำนวณกำไรสุทธิเบื้องต้น")
-
-    tab4_sub1, tab4_sub2 = st.tabs([
-        "📈 ตลาดและแนวโน้มราคา (Market Prices & Margins)",
-        "🧮 เครื่องคำนวณกำไรและจุดคุ้มทุน (Farm Profit Calculator)"
-    ])
-
-    with tab4_sub1:
-        st.markdown("#### 🌾 ราคาสินค้าเกษตรหน้าฟาร์มรายสัปดาห์ (สศก. พ.ศ. 2561–2562)")
-        if not df_prices.empty:
-            sel_price_crop = st.selectbox(
-                "เลือกชนิดสินค้าเกษตรสำหรับดูกราฟราคา:",
-                options=sorted(df_prices["product"].unique().tolist()),
-                index=0,
-                key="tab4_price_crop_select"
-            )
-            crop_prices = df_prices[df_prices["product"] == sel_price_crop]
-
-            col_p1, col_p2, col_p3 = st.columns(3)
-            with col_p1:
-                st.metric("ราคาเฉลี่ย", f"{crop_prices['price_baht_per_kg'].mean():,.2f} บาท/กก.")
-            with col_p2:
-                st.metric("ราคาสูงสุด", f"{crop_prices['price_baht_per_kg'].max():,.2f} บาท/กก.")
-            with col_p3:
-                st.metric("ราคาต่ำสุด", f"{crop_prices['price_baht_per_kg'].min():,.2f} บาท/กก.")
-
-            fig_p_trend = create_price_trend_chart(df_prices, sel_price_crop)
-            st.plotly_chart(fig_p_trend, use_container_width=True)
-
-            # Cost vs Price Margin Comparison
-            st.markdown("---")
-            st.markdown("#### ⚖️ เปรียบเทียบราคาขายเฉลี่ย vs ต้นทุนการผลิตต่อ กก.")
-            margin_summary = compare_production_cost_and_price(df_cost, df_prices, crop=sel_price_crop, year=driver_year)
-            fig_margin = create_cost_price_margin_chart(margin_summary)
-            st.plotly_chart(fig_margin, use_container_width=True)
+            st.plotly_chart(fig_driver_map, use_container_width=True)
         else:
-            st.info("ไม่มีข้อมูลราคาหน้าฟาร์มในขณะนี้")
+            st.info("ไม่พบไฟล์แผนที่ GeoJSON")
 
-    with tab4_sub2:
-        st.markdown("#### 🧮 เครื่องคำนวณรายรับและกำไรเบื้องต้น (Farm Profit Calculator)")
-        st.caption("คำนวณต้นทุนรวม ผลผลิตรวม รายรับ และกำไรสุทธิ โดยแยกช่องกรอกของเกษตรกรออกจากค่าอ้างอิงของภาครัฐ")
-
-        # Benchmark reference values
-        calc_crop = st.session_state.selected_product if st.session_state.selected_product != "ทั้งหมด" else "ข้าวนาปี"
-        cost_bench = df_cost[df_cost["crop"] == calc_crop]
-        default_cost_rai = float(cost_bench["total_cost_rai"].values[0]) if not cost_bench.empty else 4500.0
-        default_yield_rai = float(cost_bench["benchmark_yield_kg_rai"].values[0]) if (not cost_bench.empty and "benchmark_yield_kg_rai" in cost_bench.columns) else 450.0
-
-        price_sub = df_prices[df_prices["product"] == calc_crop]
-        default_price_kg = float(price_sub["price_baht_per_kg"].mean()) if not price_sub.empty else 10.50
-
-        st.markdown(f"""
-        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 13px;">
-            <b>📌 ข้อมูลอ้างอิงเฉลี่ยทางการ (สศก. สำหรับ {calc_crop}):</b> 
-            ต้นทุนเฉลี่ย: <b>{default_cost_rai:,.0f} บาท/ไร่</b> | 
-            ผลผลิตเฉลี่ย: <b>{default_yield_rai:,.0f} กก./ไร่</b> | 
-            ราคาหน้าฟาร์มเฉลี่ย: <b>{default_price_kg:,.2f} บาท/กก.</b>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col_in1, col_in2 = st.columns(2)
-        with col_in1:
-            in_area = st.number_input("1. เนื้อที่เพาะปลูก (ไร่):", min_value=1.0, max_value=10000.0, value=20.0, step=1.0)
-            in_yield = st.number_input("2. ผลผลิตต่อไร่ที่คาดว่าจะได้ (กก./ไร่):", min_value=10.0, max_value=5000.0, value=default_yield_rai, step=10.0)
-        with col_in2:
-            in_cost = st.number_input("3. ต้นทุนรวมต่อไร่ (บาท/ไร่):", min_value=100.0, max_value=50000.0, value=default_cost_rai, step=100.0)
-            in_price = st.number_input("4. ราคาขายที่คาดหวัง (บาท/กก.):", min_value=0.5, max_value=200.0, value=default_price_kg, step=0.25)
-
-        # Dynamic Math Formulas (Strictly matching specifications)
-        # Total Cost = Area * Cost per Rai
-        # Total Yield = Area * Yield per Rai
-        # Revenue = Total Yield * Sale Price per Unit
-        # Estimated Profit = Revenue - Total Cost
-        tot_cost = in_area * in_cost
-        tot_yield = in_area * in_yield
-        tot_revenue = tot_yield * in_price
-        est_profit = tot_revenue - tot_cost
-        breakeven_yield = tot_cost / (in_area * in_price) if (in_area * in_price) > 0 else 0.0
-        breakeven_price = tot_cost / tot_yield if tot_yield > 0 else 0.0
-
-        st.markdown("---")
-        st.markdown("#### 📊 ผลการคำนวณทางเศรษฐศาสตร์ฟาร์ม")
-
-        col_res1, col_res2, col_res3, col_res4 = st.columns(4)
-        with col_res1:
-            st.metric("ต้นทุนรวม (Total Cost)", f"{tot_cost:,.0f} บาท")
-        with col_res2:
-            st.metric("ผลผลิตรวม (Total Yield)", f"{tot_yield:,.0f} กก.", help=f"คิดเป็น {tot_yield/1000:,.2f} ตัน")
-        with col_res3:
-            st.metric("รายรับรวม (Revenue)", f"{tot_revenue:,.0f} บาท")
-        with col_res4:
-            profit_color = "normal" if est_profit >= 0 else "inverse"
-            st.metric("กำไรสุทธิประมาณการ (Profit)", f"{est_profit:,.0f} บาท", delta=f"{est_profit / tot_cost * 100:+.1f}% ROI" if tot_cost > 0 else None)
-
-        col_be1, col_be2 = st.columns(2)
-        with col_be1:
-            st.info(f"🎯 **จุดคุ้มทุนด้านผลผลิต (Break-even Yield):** **{breakeven_yield:,.1f} กก./ไร่** (หากผลผลิตต่ำกว่านี้จะขาดทุน ณ ราคา {in_price:.2f} บาท/กก.)")
-        with col_be2:
-            st.info(f"🎯 **จุดคุ้มทุนด้านราคา (Break-even Price):** **{breakeven_price:,.2f} บาท/กก.** (หากขายได้ต่ำกว่านี้จะขาดทุน ณ ผลผลิต {in_yield:,.0f} กก./ไร่)")
-
-        # Mandatory Disclaimer
         st.markdown("""
-        <div style="background-color: #FFFBEB; border: 1px solid #FCD34D; padding: 12px 16px; border-radius: 8px; margin-top: 14px;">
-            <span style="font-weight: 600; color: #B45309; font-size: 13px;">⚠️ ข้อจำกัดความรับผิดชอบ (Disclaimer):</span><br>
-            <span style="font-size: 12px; color: #92400E; line-height: 1.5;">
-                ผลการคำนวณเป็นเพียงการประมาณการเบื้องต้นจากตัวเลขที่ผู้ใช้กำหนดขึ้น มิใช่การยืนยันผลประกอบการจริงจากระบบบัญชีฟาร์ม เกษตรกรควรพิจารณาความเสี่ยงด้านสภาพอากาศ ความผันผวนของราคาตลาด และคุณภาพผลผลิตจริงประกอบการตัดสินใจ
-            </span>
+        <div style="font-size: 12px; color: #64748B; background: #F8FAFC; border: 1px solid #E2E8F0; padding: 10px 12px; border-radius: 8px;">
+            📌 <b>แหล่งข้อมูลปัจจัยการผลิต:</b> กรมชลประทาน (RID), กรมพัฒนาที่ดิน (Agri-Map), กรมส่งเสริมการเกษตร (DOAE), ปภ. และ สศก.
         </div>
         """, unsafe_allow_html=True)
+
+    with col_t4_dash:
+        st.markdown("#### ⚙️ ปัจจัยขับเคลื่อนผลผลิต (Production Driver Insights)")
+
+        tab_driver_charts, tab_profit_calc = st.tabs([
+            "📊 กราฟวิเคราะห์ปัจจัยการผลิต",
+            "🧮 เครื่องคำนวณกำไรและจุดคุ้มทุนฟาร์ม"
+        ])
+
+        with tab_driver_charts:
+            driver_topic = st.selectbox(
+                "เลือกมิติปัจจัยที่ต้องการวิเคราะห์เชิงลึก:",
+                options=[
+                    "1. 💧 แหล่งน้ำและระบบชลประทาน (RID vs Yield)",
+                    "2. 🌱 ความเหมาะสมของดิน (Agri-Map LDD)",
+                    "3. ⚙️ โครงสร้างต้นทุนและเครื่องจักรกล (OAE)",
+                    "4. ⚠️ ภัยธรรมชาติ น้ำท่วมและภัยแล้ง (DOAE/DDPM)"
+                ],
+                key="tab4_topic_select"
+            )
+
+            if "1. 💧 แหล่งน้ำ" in driver_topic:
+                df_irrig_yield = join_irrigation_and_yield(df_ag, df_irrig, crop=driver_crop, year=driver_year)
+                fig_irrig = create_irrigation_vs_yield_chart(df_irrig_yield, driver_crop, driver_year)
+                st.plotly_chart(fig_irrig, use_container_width=True)
+                st.markdown("""
+                - **บทบาทชลประทาน:** แปลงที่มีระบบชลประทานสามารถควบคุมน้ำสม่ำเสมอ ลดความเสี่ยงฝนทิ้งช่วง และมีผลผลิตต่อไร่สูงกว่าแปลงนอกเขตชลประทานอย่างมีนัยสำคัญ
+                """)
+
+            elif "2. 🌱 ความเหมาะสมของดิน" in driver_topic:
+                fig_soil = create_soil_suitability_bar_chart(df_soil, driver_crop, top_n=12)
+                st.plotly_chart(fig_soil, use_container_width=True)
+                st.markdown("""
+                - **แนวทาง Agri-Map กรมพัฒนาที่ดิน:** พื้นที่เหมาะสมสูง (S1) ควรรักษาความอุดมสมบูรณ์ พื้นที่เหมาะสมปานกลาง-น้อย (S2/S3) ควรปรับปรุงดินด้วยอินทรียวัตถุ และพื้นที่ไม่เหมาะสม (N) ควรปรับเปลี่ยนพืช (Zoning)
+                """)
+
+            elif "3. ⚙️ โครงสร้างต้นทุน" in driver_topic:
+                cost_summary = compare_production_cost_and_price(df_cost, df_prices, crop=driver_crop, year=driver_year)
+                if cost_summary.get("has_data", False):
+                    fig_cost_str = create_cost_structure_breakdown_chart(
+                        cost_summary["cost_breakdown"], driver_crop, cost_summary["total_cost_rai"], driver_year
+                    )
+                    st.plotly_chart(fig_cost_str, use_container_width=True)
+                    st.markdown(f"- **สัดส่วนค่าบริการเครื่องจักรกล:** {cost_summary['mechanization_share_pct']:.1f}% ของต้นทุนรวม ช่วยชดเชยการขาดแคลนแรงงานภาคการเกษตร")
+                else:
+                    st.info("ไม่มีข้อมูลโครงสร้างต้นทุนสำหรับพืชนี้")
+
+            else:
+                fig_dis = create_disaster_impact_chart(df_disaster, driver_year, top_n=10)
+                st.plotly_chart(fig_dis, use_container_width=True)
+                st.markdown("- **การจัดการความเสี่ยง:** อุทกภัยสร้างความเสียหายรวดเร็วในที่ลุ่ม ส่วนภัยแล้งกระทบผลผลิตเป็นวงกว้าง เกษตรกรควรจัดทำสระน้ำไร่นาและขุดลอกคูคลอง")
+
+        with tab_profit_calc:
+            st.markdown("##### 🧮 เครื่องคำนวณรายรับและกำไรสุทธิฟาร์ม (Farm Profit Calculator)")
+            st.caption("คำนวณกำไรสุทธิ จุดคุ้มทุนด้านผลผลิต และจุดคุ้มทุนด้านราคา โดยแยกช่องกรอกของผู้ใช้ออกจากเกณฑ์อ้างอิงภาครัฐ")
+
+            # Government benchmark reference values
+            cost_bench = df_cost[df_cost["crop"] == driver_crop]
+            default_cost_rai = float(cost_bench["total_cost_rai"].values[0]) if not cost_bench.empty else 4500.0
+            default_yield_rai = float(cost_bench["benchmark_yield_kg_rai"].values[0]) if (not cost_bench.empty and "benchmark_yield_kg_rai" in cost_bench.columns) else 450.0
+
+            price_sub = df_prices[df_prices["product"] == driver_crop]
+            default_price_kg = float(price_sub["price_baht_per_kg"].mean()) if not price_sub.empty else 10.50
+
+            st.markdown(f"""
+            <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; font-size: 12.5px;">
+                <b>📌 ค่าอ้างอิงเฉลี่ยภาครัฐ (สศก. สำหรับ {driver_crop}):</b> 
+                ต้นทุนเฉลี่ย: <b>{default_cost_rai:,.0f} บาท/ไร่</b> | 
+                ผลผลิตเฉลี่ย: <b>{default_yield_rai:,.0f} กก./ไร่</b> | 
+                ราคาหน้าฟาร์มเฉลี่ย: <b>{default_price_kg:,.2f} บาท/กก.</b>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col_in1, col_in2 = st.columns(2)
+            with col_in1:
+                in_area = st.number_input("1. เนื้อที่เพาะปลูกของท่าน (ไร่):", min_value=1.0, max_value=10000.0, value=20.0, step=1.0, key="calc_area_input")
+                in_yield = st.number_input("2. ผลผลิตต่อไร่ที่คาดว่าจะได้ (กก./ไร่):", min_value=10.0, max_value=5000.0, value=default_yield_rai, step=10.0, key="calc_yield_input")
+            with col_in2:
+                in_cost = st.number_input("3. ต้นทุนรวมต่อไร่ (บาท/ไร่):", min_value=100.0, max_value=50000.0, value=default_cost_rai, step=100.0, key="calc_cost_input")
+                in_price = st.number_input("4. ราคาขายที่คาดหวัง (บาท/กก.):", min_value=0.5, max_value=200.0, value=default_price_kg, step=0.25, key="calc_price_input")
+
+            # Dynamic Calculations
+            tot_cost = in_area * in_cost
+            tot_yield = in_area * in_yield
+            tot_revenue = tot_yield * in_price
+            est_profit = tot_revenue - tot_cost
+            breakeven_yield = tot_cost / (in_area * in_price) if (in_area * in_price) > 0 else 0.0
+            breakeven_price = tot_cost / tot_yield if tot_yield > 0 else 0.0
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            col_res1, col_res2, col_res3, col_res4 = st.columns(4)
+            with col_res1:
+                st.metric("ต้นทุนรวม (Total Cost)", f"{tot_cost:,.0f} บาท")
+            with col_res2:
+                st.metric("ผลผลิตรวม (Total Yield)", f"{tot_yield:,.0f} กก.", help=f"คิดเป็น {tot_yield/1000:,.2f} ตัน")
+            with col_res3:
+                st.metric("รายรับรวม (Revenue)", f"{tot_revenue:,.0f} บาท")
+            with col_res4:
+                st.metric("กำไรสุทธิประมาณการ", f"{est_profit:,.0f} บาท", delta=f"{est_profit / tot_cost * 100:+.1f}% ROI" if tot_cost > 0 else None)
+
+            col_be1, col_be2 = st.columns(2)
+            with col_be1:
+                st.info(f"🎯 **จุดคุ้มทุนด้านผลผลิต (Break-even Yield):** **{breakeven_yield:,.1f} กก./ไร่** (หากได้ต่ำกว่านี้จะขาดทุน ณ ราคา {in_price:.2f} บาท/กก.)")
+            with col_be2:
+                st.info(f"🎯 **จุดคุ้มทุนด้านราคา (Break-even Price):** **{breakeven_price:,.2f} บาท/กก.** (หากขายได้ต่ำกว่านี้จะขาดทุน ณ ผลผลิต {in_yield:,.0f} กก./ไร่)")
+
+            st.markdown("""
+            <div style="background-color: #FFFBEB; border: 1px solid #FCD34D; padding: 10px 14px; border-radius: 8px; margin-top: 10px;">
+                <span style="font-weight: 600; color: #B45309; font-size: 12px;">⚠️ ข้อจำกัดความรับผิดชอบ (Disclaimer):</span><br>
+                <span style="font-size: 11.5px; color: #92400E; line-height: 1.5;">
+                    ผลการคำนวณเป็นเพียงการประมาณการเบื้องต้นจากตัวเลขที่ผู้ใช้กำหนดขึ้น มิใช่การยืนยันผลประกอบการจริงจากระบบบัญชีฟาร์ม เกษตรกรควรพิจารณาความเสี่ยงด้านสภาพอากาศ ความผันผวนของราคาตลาด และคุณภาพผลผลิตจริงประกอบการตัดสินใจ
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
