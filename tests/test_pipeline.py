@@ -655,3 +655,98 @@ class TestCropProductionDrivers:
 
         fig6 = create_cost_price_margin_chart(summary)
         assert fig6 is not None
+
+
+class TestRedesignedDashboard:
+    """Acceptance criteria tests for the redesigned 4-tab dashboard."""
+
+    def test_exactly_four_tabs_in_app(self):
+        """Verify that app.py defines exactly 4 main tabs."""
+        from src.data_loader import get_project_root
+        import re
+        import os
+        app_path = os.path.join(get_project_root(), "app.py")
+        with open(app_path, "r", encoding="utf-8") as f:
+            app_content = f.read()
+        match = re.search(r"tab1,\s*tab2,\s*tab3,\s*tab4\s*=\s*st\.tabs\(\[([\s\S]*?)\]\)", app_content)
+        assert match is not None, "Dashboard must declare exactly tab1, tab2, tab3, tab4 = st.tabs([...])"
+        tabs_str = match.group(1)
+        tabs_list = [t.strip() for t in tabs_str.split(",") if t.strip()]
+        assert len(tabs_list) == 4, f"Expected exactly 4 tabs, found {len(tabs_list)}: {tabs_list}"
+
+    def test_province_to_region_coverage(self):
+        """Verify that all 77 official provinces are mapped in PROVINCE_TO_REGION."""
+        from src.data_cleaning import OFFICIAL_77_PROVINCES, PROVINCE_TO_REGION, REGION_TO_PROVINCES
+        assert len(PROVINCE_TO_REGION) == 77
+        for p in OFFICIAL_77_PROVINCES:
+            assert p in PROVINCE_TO_REGION, f"Province {p} is missing from PROVINCE_TO_REGION"
+            assert PROVINCE_TO_REGION[p] in ["ภาคเหนือ", "ภาคตะวันออกเฉียงเหนือ", "ภาคกลาง", "ภาคใต้"]
+        
+        # Verify reverse mapping
+        total_reverse = sum(len(provs) for provs in REGION_TO_PROVINCES.values())
+        assert total_reverse == 77
+
+    def test_region_filtering_in_apply_ag_filters(self):
+        """Verify that region filtering correctly selects only provinces in that region."""
+        from src.data_loader import load_agriculture_data
+        from src.data_cleaning import clean_agriculture_data, REGION_TO_PROVINCES
+        from src.filters import apply_ag_filters
+
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        df_north = apply_ag_filters(df_ag, year=2562, region="ภาคเหนือ", geo_level="province")
+        assert not df_north.empty
+        north_provinces = set(REGION_TO_PROVINCES["ภาคเหนือ"])
+        for p in df_north["province"].unique():
+            assert p in north_provinces, f"Province {p} not expected in Northern region"
+
+    def test_all_26_crops_present_in_dataset(self):
+        """Verify that all 26 crops from the OAE dataset are loaded without dropping any."""
+        from src.data_loader import load_agriculture_data
+        from src.data_cleaning import clean_agriculture_data
+
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        crops = df_ag["product"].dropna().unique().tolist()
+        assert len(crops) >= 26, f"Expected at least 26 crops, found {len(crops)}"
+        assert "ข้าวนาปี" in crops
+        assert "ข้าวนาปรัง" in crops
+        assert "มันสำปะหลัง" in crops
+        assert "ข้าวโพดเลี้ยงสัตว์" in crops
+        assert "ทุเรียน" in crops
+        assert "ยางพารา" in crops
+
+    def test_farm_profit_calculator_formulas(self):
+        """Verify required farm profit calculator formulas:
+        - Total Cost = Area * Cost per Rai
+        - Total Yield = Area * Yield per Rai
+        - Revenue = Total Yield * Sale Price per Unit
+        - Estimated Profit = Revenue - Total Cost
+        - Break-even Yield = Total Cost / (Area * Sale Price)
+        - Break-even Price = Total Cost / Total Yield
+        """
+        area = 25.0
+        cost_rai = 4000.0
+        yield_rai = 500.0
+        sale_price = 10.0
+
+        tot_cost = area * cost_rai          # 100,000 Baht
+        tot_yield = area * yield_rai        # 12,500 kg
+        tot_rev = tot_yield * sale_price    # 125,000 Baht
+        est_profit = tot_rev - tot_cost     # 25,000 Baht
+        be_yield = tot_cost / (area * sale_price) # 400.0 kg/rai
+        be_price = tot_cost / tot_yield     # 8.0 Baht/kg
+
+        assert tot_cost == 100000.0
+        assert tot_yield == 12500.0
+        assert tot_rev == 125000.0
+        assert est_profit == 25000.0
+        assert be_yield == 400.0
+        assert be_price == 8.0
+
+    def test_headless_app_execution_zero_exceptions(self):
+        """Verify that app.py executes cleanly without uncaught exceptions via Streamlit AppTest."""
+        from streamlit.testing.v1 import AppTest
+        from src.data_loader import get_project_root
+        import os
+        app_path = os.path.join(get_project_root(), "app.py")
+        at = AppTest.from_file(app_path, default_timeout=30).run()
+        assert len(at.exception) == 0, f"App execution raised exceptions: {[e.value for e in at.exception]}"

@@ -1,161 +1,63 @@
 # Handoff — Thai Agriculture & Climate Intelligence Dashboard
 ### Real Open Data Edition for Thai Farmers & Agricultural Research
 
-## 1. เป้าหมายและการอัปเกรดระบบ (System Objectives & Upgrades)
+## 1. เป้าหมายและการอัปเกรดระบบ (System Objectives & Redesign Upgrades)
 
-พัฒนาและยกระดับระบบ **Thai Agriculture & Climate Intelligence Dashboard** เพื่อให้เป็นแพลตฟอร์มสารสนเทศสำหรับเกษตรกรไทยและงานวิจัยวิชาการ โดยใช้ข้อมูลจริงจากแหล่ง Open Data ภาครัฐที่ตรวจสอบได้ 100% (สศก., กรมอุตุนิยมวิทยา, สสน. HII)
-
-### สรุปการดำเนินการสำคัญตาม Master Prompt:
-1. **การยกเลิกชุดข้อมูลสถานีเดี่ยวสุพรรณบุรี (Mandatory Data Removal):**
-   - นำไฟล์ `สถิติปริมาณฝนและอุณหภูมิ.xlsx` ออกจาก Git และคลังข้อมูลทั้งหมดอย่างเด็ดขาด
-   - ลบฟังก์ชันและโค้ดอ้างอิงทั้งหมดใน `src/data_loader.py`, `src/data_cleaning.py`, `src/analytics.py`, `app.py`, `tests/test_pipeline.py`, `README.md`, และ `data_sources.md`
-   - เพิ่ม Automated Unit Tests ยืนยันว่าระบบไม่โหลดหรืออ้างอิงไฟล์ที่ยกเลิก
-2. **การบูรณาการข้อมูลเปิดภาครัฐใหม่ (New Verified Open Data Integration):**
-   - **สถิติราคาสินค้าเกษตรที่เกษตรกรขายได้ที่ไร่นา รายสัปดาห์ (สศก.):** OAE Data Catalog ID 35 ครอบคลุม 95 สินค้า 1,979 รายการบันทึกจริง พ.ศ. 2561–2562 (`data/raw/oae_farmgate_prices_2561_2562.csv`)
-   - **ข้อมูลตรวจวัดอากาศเพื่อการเกษตรรายวัน (TMD):** กรมอุตุนิยมวิทยา Open Data API Catalog `c1-1-3-7` (34 สถานีตรวจวัดเพื่อการเกษตรทั่วประเทศ)
-   - **สถานะการเข้าถึงข้อมูลดาวเทียม (GISTDA):** รายงานสถานะการเข้าถึง Catalog `agriculture-07` อย่างโปร่งใส ไม่สร้างข้อมูลจำลอง
-3. **การพัฒนาสถาปัตยกรรม 5 แท็บเชื่อมโยง (5-Tab Connected Architecture):**
-   - **TAB 1: ภาพรวมประเทศไทย (Thailand Overview)**
-   - **TAB 2: แผนที่พื้นที่เพาะปลูกจริง (Real Cultivation Map)**
-   - **TAB 3: สภาพอากาศกับความเสี่ยง (Climate Impact & Risk)**
-   - **TAB 4: ผู้ช่วยวางแผนเพาะปลูก (Crop Planning Assistant)**
-   - **TAB 5: ตลาดและเครื่องคำนวณฟาร์ม (Market & Farm Calculator)**
-4. **ความน่าเชื่อถือและการทดสอบ:**
-   - ชุดทดสอบ Unit Tests อัตโนมัติ 45 การทดสอบ ครอบคลุม 100% (ผ่านครบ 45/45)
-   - ผ่านการทดสอบรันแอปพลิเคชัน Streamlit แบบ Headless AppTest โดยไม่มีข้อผิดพลาด
+พัฒนาและปรับปรุงระบบ **Thai Agriculture & Climate Intelligence Dashboard** ให้เป็นไปตาม Master Prompt และ Design System:
+- **โครงสร้าง Dashboard มีเพียง 4 Tabs หลัก:**
+  1. **Tab 1 — Overview: ภาพรวมการผลิตสินค้าเกษตร**
+  2. **Tab 2 — Climate & Harvest: สภาพอากาศและสถานการณ์เพาะปลูก**
+  3. **Tab 3 — Production Factors: ปัจจัยที่เกี่ยวข้องกับผลผลิต**
+  4. **Tab 4 — Farm Economics: ราคา ต้นทุน และความคุ้มค่า**
+- **Global Filter Bar ด้านบน:**
+  - ภูมิภาค (Region: ทั้งหมด, ภาคเหนือ, ภาคตะวันออกเฉียงเหนือ, ภาคกลาง, ภาคใต้)
+  - จังหวัด (Province: ปรับเปลี่ยนตัวเลือกแบบ Dynamic ตามภูมิภาคที่เลือก)
+  - ระดับพื้นที่ (Granularity: แจ้งความละเอียดข้อมูลระดับรายจังหวัด 77 จังหวัดของ สศก.)
+  - ชนิดพืช (Crop: ดึงจากข้อมูลจริงทั้งหมด 26 ชนิดพืชแบบ Dynamic)
+  - ปี พ.ศ. (Year: 2550–2562)
+  - ตัวชี้วัดหลัก (Metric: ผลผลิตรวม, ผลผลิตต่อไร่, เนื้อที่เพาะปลูก, เนื้อที่เก็บเกี่ยว, อัตราเก็บเกี่ยว)
+  - ปุ่ม Reset Filters และแถบสรุปสถานะตัวกรอง (Active Filter Badges)
+- **การทดสอบความถูกต้อง:**
+  - Unit Tests 51/51 ผ่านทั้งหมด 100%
+  - Streamlit AppTest แบบ Headless ผ่านราบรื่น 0 Exceptions / 0 Crashes
 
 ---
 
-## 2. โครงสร้างและการทำงานของ 5 แท็บหลัก
+## 2. โครงสร้างและการทำงานของ 4 แท็บหลัก
 
-### 🗺️ TAB 1: ภาพรวมประเทศไทย (Thailand Overview)
-- **KPI Cards:** ผลผลิตรวม (ตัน), เนื้อที่เพาะปลูก (ไร่), เนื้อที่เก็บเกี่ยว (ไร่), Weighted Yield (กก./ไร่), Harvest Ratio (%), และ YoY Growth (%)
-- **Top 10 Rankings:** จัดอันดับ 10 จังหวัด และ 10 ชนิดพืชที่มีผลผลิตสูงสุด
-- **Historical Trends:** กราฟแนวโน้มรายปี พ.ศ. 2550–2562 (13 ปี) เลือกสลับตัวแปรได้
+### 📊 TAB 1: ภาพรวมการผลิตสินค้าเกษตร (Overview)
+- **แถวที่ 1 (KPI Cards 4 ใบ):** เนื้อที่เพาะปลูก (ไร่), เนื้อที่เก็บเกี่ยว (ไร่), ผลผลิตรวม (ตัน), ผลผลิตต่อไร่แบบถ่วงน้ำหนัก (กก./ไร่) พร้อมป้ายแสดงส่วนต่างและ % การเติบโตเทียบปีก่อนหน้า (YoY)
+- **แถวที่ 2 (แผนที่และแนวโน้มประวัติศาสตร์):**
+  - Interactive Choropleth Map ของประเทศไทย เชื่อมโยงรหัสจังหวัดและชื่อภาษาไทย พร้อม Legend และ Tooltip
+  - Historical Trend Line Chart แสดงแนวโน้มรายปี พ.ศ. 2550–2562 ตามตัวชี้วัดที่เลือก
+- **แถวที่ 3 (การจัดอันดับ):** กราฟแท่ง Top 10 (สูงสุด) และ Bottom 10 (ต่ำสุด: เฉพาะ > 0) พร้อมข้อสังเกตเชิงวิชาการเรื่องขนาดการผลิต vs ประสิทธิภาพผลผลิตต่อไร่ (Scale vs Efficiency)
+- **แถวที่ 4 (ตารางข้อมูลรายละเอียด):** ตารางสถิติรายภาค จังหวัด พืช ปี พร้อมกล่องค้นหา (Search Box), การจัดเรียงตามคอลัมน์ และปุ่มดาวน์โหลดไฟล์ CSV (utf-8-sig)
 
-### 📍 TAB 2: แผนที่พื้นที่เพาะปลูกจริง (Real Cultivation Map)
-- **4 พืชเศรษฐกิจหลัก & ทุกชนิดพืช:** ตัวเลือกด่วนสำหรับ ข้าวนาปี, ข้าวนาปรัง, อ้อยโรงงาน, มันสำปะหลังโรงงาน, ข้าวโพดเลี้ยงสัตว์ และพืชอื่นรวม 26 รายการ
-- **Interactive Thailand Choropleth Map:** แผนที่แรเงาสีตามสถิติจริงของ สศก. รายจังหวัด (77 จังหวัด)
-- **การจำแนกชั้นข้อมูล 3 ประเภท:**
-  1. สถิติทางการเกษตร (สศก.)
-  2. พื้นที่ตรวจจับจากดาวเทียม (GISTDA Open Data Catalog `agriculture-07`)
-  3. การใช้ประโยชน์ที่ดิน (LDD)
-- **GISTDA Live API Gateway Status:** เครื่องมือตรวจสอบพิกัดจริง พร้อมรายงานสถานะ API Key อย่างโปร่งใส (ไม่สร้างข้อมูลสุ่ม)
-- **Data Table & CSV Export:** ตารางสถิติรายจังหวัดพร้อมปุ่มดาวน์โหลดไฟล์ CSV
+### 🌦️ TAB 2: สภาพอากาศและสถานการณ์เพาะปลูก (Climate & Harvest)
+- **ข้อมูลตรวจวัดจริง 3 มิติ:** ฝนเชิงพื้นที่ 77 จังหวัด (HII IDW 2561–2562), ฝนสะสมเฉลี่ยระดับประเทศระยะยาว (HII 1970–2025), และสถานีตรวจอากาศเกษตรรายวัน (TMD 34 สถานี)
+- **การวิเคราะห์ความสัมพันธ์ (Correlation):** Bivariate Scatter Plot พร้อม OLS Trendline, Pearson $r$, Spearman $\rho$, $p$-value และขนาดตัวอย่าง $n$
+- **ช่วงเวลาฝนตก (Rainfall Timing):** วิเคราะห์ฝนสะสมช่วงฤดูเพาะปลูก (พ.ค.–ต.ค.) vs ฝนสะสมทั้งปี
+- **Academic Guardrails:** ป้ายเตือน "Correlation is NOT Causation" และการแสดงค่าคาดการณ์ (Projections) อย่างโปร่งใส
 
-### 🌦️ TAB 3: สภาพอากาศกับความเสี่ยง (Climate Impact & Risk)
-- **3 มิติข้อมูลอากาศจริง:**
-  1. ฝนเชิงพื้นที่ 77 จังหวัดทั่วประเทศ (สสน. HII IDW พ.ศ. 2561–2562)
-  2. แนวโน้มฝนสะสมภาพรวมประเทศระยะยาว (สสน. HII 1970–2025)
-  3. สถานีตรวจอากาศเพื่อการเกษตรรายวัน (กรมอุตุนิยมวิทยา TMD Catalog `c1-1-3-7`, 34 สถานี)
-- **Uncluttered Bivariate Scatter & Academic Interpretation:** กราฟ Scatter Plot สะอาดตา นำป้ายข้อความทับจุดออก แสดงชื่อจังหวัดบน Hover Tooltip เท่านั้น พร้อมเส้นแนวโน้ม OLS, ค่าสถิติ Pearson $r$, $p$-value, จำนวนตัวอย่าง $n$ และคำอธิบายความแตกต่างระหว่างความสัมพันธ์กับความเป็นเหตุเป็นผล (Correlation vs Causation)
-- **Area vs Yield Quadrants:** กราฟ Scatter Plot 4 กลุ่มผลิตภาพตามค่ามัธยฐาน
-- **Risk & Review Monitoring:** เกณฑ์อัตราการเก็บเกี่ยวตรวจสอบ (ค่าเริ่มต้น < 90%) พร้อมติดธงเตือน `⚠️ สัญญาณตรวจทาน` และคำนวณเนื้อที่เสียหายจริง
+### 🚜 TAB 3: ปัจจัยที่เกี่ยวข้องกับผลผลิต (Production Factors)
+- **แหล่งน้ำและระบบชลประทาน (RID & OAE):** สัดส่วนพื้นที่ชลประทานรายจังหวัด vs ผลผลิตต่อไร่
+- **ความเหมาะสมของดิน (Agri-Map กรมพัฒนาที่ดิน LDD):** สัดส่วนชั้นความเหมาะสม S1, S2, S3, N รายจังหวัด
+- **ภัยธรรมชาติ น้ำท่วมและภัยแล้ง (DOAE & DDPM):** พื้นที่ประสบภัยสะสมและอัตราความเสียหาย
+- **เทคโนโลยีและโครงสร้างต้นทุน (สศก.):** Donut Chart โครงสร้างต้นทุน (ปุ๋ย สารเคมี เมล็ดพันธุ์ แรงงาน เครื่องจักรกล ค่าเช่าที่ดิน) และระดับการใช้เครื่องจักร (Mechanization Share %)
 
-### 📅 TAB 4: ผู้ช่วยวางแผนเพาะปลูก (Crop Planning Assistant)
-- **เครื่องมือตัดสินใจสำหรับเกษตรกร:** เลือกจังหวัด ชนิดพืช และฤดูกาลเพาะปลูก
-- **เกณฑ์อ้างอิงระดับพื้นที่:** แสดงผลผลิตเฉลี่ยย้อนหลัง 13 ปีของจังหวัด และอัตราเก็บเกี่ยวสำเร็จจริงจาก สศก.
-- **ปฏิทินและคำแนะนำมาตรฐาน:** ช่วงเวลาปลูกและเก็บเกี่ยว, รอบอายุพืช, คุณสมบัติดินและน้ำที่ต้องการ อ้างอิงจากกรมการข้าว, กรมวิชาการเกษตร และกรมส่งเสริมการเกษตร
-- **Pre-planting Checklist:** รายการตรวจสอบก่อนปลูก 5 ข้อ เช่น ตรวจดิน แหล่งน้ำ เมล็ดพันธุ์ และการกำจัดโรคในดิน
-- **Climate Precautions:** คำเตือนความเสี่ยงสภาพอากาศและแมลงศัตรูพืชสำคัญ
-
-### 💰 TAB 5: ตลาดและเครื่องคำนวณฟาร์ม (Market & Farm Calculator)
-- **Part A: สถิติราคาหน้าไร่นา สศก. (พ.ศ. 2561–2562):**
-  - ข้อมูลจริงจาก OAE Data Catalog ID 35 ครอบคลุม 95 สินค้า 1,979 รายการรายสัปดาห์
-  - แสดงราคาล่าสุด, ต่ำสุด, สูงสุด, ราคาเฉลี่ย, กราฟแนวโน้มรายสัปดาห์ และปุ่มดาวน์โหลด CSV
-- **Part B: Interactive Farm Calculator & Formula Disclosure:**
-  - กล่องแสดงสูตรคำนวณคณิตศาสตร์และตัวแปรทางการเงินอย่างชัดเจน
-  - กำหนดค่าเริ่มต้นอัตโนมัติจากผลผลิตเฉลี่ยของจังหวัดและราคาตลาด สศก.
-  - ผู้ใช้กรอกขนาดแปลง (ไร่) และต้นทุนจริง (เมล็ด/ท่อนพันธุ์, ปุ๋ย, สารเคมี, แรงงาน, เชื้อเพลิง/สูบน้ำ, ค่าเช่าที่ดิน)
-  - คำนวณรายรับรวม, ต้นทุนรวม, กำไร/ขาดทุนสุทธิ, อัตรากำไร (%), ต้นทุนต่อ กก.
-  - คำนวณ **ราคาขาย ณ จุดคุ้มทุน (Break-Even Price)** และ **ผลผลิตขั้นต่ำ ณ จุดคุ้มทุน (Break-Even Yield)**
-  - Donut Chart สัดส่วนโครงสร้างต้นทุน
-  - What-if Sensitivity Scenarios Bar Chart (จำลองสถานการณ์ราคาและผลผลิตผันผวน -20% ถึง +20%)
-  - การให้คำแนะนำตัดสินใจตามส่วนต่างความปลอดภัยของกำไร (Safety Margin)
-### 🚜 TAB 6: ปัจจัยขับเคลื่อนผลผลิต (Crop Production Drivers)
-- **5 เสาหลักแห่งผลิตภาพทางการเกษตร:**
-  1. น้ำ ฝน และระบบชลประทาน (สถิติชลประทาน กรมชลประทาน/สศก. และฝนฤดูเพาะปลูก HII)
-  2. ดินและความเหมาะสมของพื้นที่ (Agri-Map กรมพัฒนาที่ดิน S1, S2, S3, N)
-  3. เทคโนโลยีและโครงสร้างต้นทุนปัจจัยการผลิต (สถิติต้นทุนและการใช้เครื่องจักร สศก.)
-  4. โรค แมลง ภัยแล้ง และอุทกภัย (พื้นที่ประสบภัยพิบัติ DOAE & DDPM)
-  5. กลไกราคา ต้นทุน และเศรษฐศาสตร์ฟาร์ม (Price-Cost Margin & Interactive Calculator แยกค่าเกษตรกรกับเกณฑ์ภาครัฐ)
-- **การทดสอบความถูกต้อง:** ชุดทดสอบ `TestCropProductionDrivers` ครอบคลุมทุกฟังก์ชันการโหลดข้อมูล ทำความสะอาด วิเคราะห์ และพล็อต ทั้ง 11 การทดสอบใหม่ผ่าน 100%
+### 💰 TAB 4: ราคา ต้นทุน และความคุ้มค่า (Farm Economics)
+- **ราคาสินค้าเกษตรหน้าฟาร์มจริง (สศก.):** ราคารายสัปดาห์ 1,979 รายการ, กราฟแนวโน้ม และสถิติราคาเฉลี่ย สูงสุด ต่ำสุด
+- **ส่วนต่างกำไร/ขาดทุนต่อหน่วย:** เปรียบเทียบต้นทุนการผลิตต่อ กก. vs ราคาขายหน้าไร่นา
+- **เครื่องคำนวณกำไรและจุดคุ้มทุน (Farm Profit Calculator):**
+  - แยกช่องกรอกของเกษตรกรออกจากเกณฑ์เฉลี่ยมาตรฐานของ สศก.
+  - คำนวณต้นทุนรวม, ผลผลิตรวม, รายรับรวม, กำไรสุทธิประมาณการ, จุดคุ้มทุนด้านราคา (Break-Even Price) และจุดคุ้มทุนด้านผลผลิต (Break-Even Yield)
+  - ข้อจำกัดความรับผิดชอบ (Disclaimer) ว่าเป็นการประมาณการมิใช่การรับรองผลประกอบการทางบัญชี
 
 ---
 
-## 3. สรุปชุดข้อมูลที่ใช้งานจริง (Verified Data Inventory)
+## 3. ข้อมูลและการทดสอบ (Data Governance & Automated Tests)
 
-| ชื่อชุดข้อมูล | หน่วยงาน | ไฟล์/API ในระบบ | ขนาด/ช่วงเวลา |
-|---|---|---|---|
-| สถิติการผลิตสินค้าเกษตรรายปี | สศก. | `สถิติการผลิตสินค้าเกษตรรายปี 2550-2562.xlsx` | 11,914 แถว, 77 จังหวัด, 26 พืช (พ.ศ. 2550–2562) |
-| สถิติราคาหน้าไร่นารายสัปดาห์ | สศก. (Catalog 35) | `data/raw/oae_farmgate_prices_2561_2562.csv` | 1,979 แถว, 95 สินค้า (พ.ศ. 2561–2562) |
-| สภาพอากาศเพื่อการเกษตรรายวัน | TMD (Catalog c1-1-3-7) | API + `data/raw/tmd_agromet_sample.json` | 34 สถานีตรวจวัดทั่วประเทศ |
-| ฝนเชิงพื้นที่รายจังหวัด (IDW) | สสน. HII | `data/raw/spatial_rain_hii.csv` | 8,085 แถว, 77 จังหวัด (พ.ศ. 2561–2569) |
-| ฝนเฉลี่ยสะสมทั้งประเทศ | สสน. HII | `data/raw/national_rain_1970_current.csv` | พ.ศ. 2513–2568 (1970–2025) |
-| อุณหภูมิสูงสุด-ต่ำสุดรายจังหวัด | สสน. HII | `data/raw/provincial_temp_2018_2019.csv` | พ.ศ. 2561–2562 |
-| ขอบเขต 77 จังหวัดประเทศไทย | Royal Thai Survey Dept | `data/thai_provinces.geojson` | 77 Features (WGS84) |
-
----
-
-## 4. ผลการทดสอบระบบ (Test Results)
-
-รันคำสั่ง:
-```bash
-python -m pytest tests/test_pipeline.py -v
-```
-ผลลัพธ์:
-```text
-tests/test_pipeline.py::TestMandatoryDataRemoval::test_retired_suphan_dataset_not_used PASSED [  4%]
-tests/test_pipeline.py::TestMandatoryDataRemoval::test_no_suphan_legacy_loader_exported PASSED [  8%]
-tests/test_pipeline.py::TestDataCleaning::test_year_conversions PASSED   [ 12%]
-tests/test_pipeline.py::TestDataCleaning::test_normalize_province_name PASSED [ 16%]
-tests/test_pipeline.py::TestDataCleaning::test_spatial_hierarchy_classification PASSED [ 20%]
-tests/test_pipeline.py::TestDataCleaning::test_clean_oae_farmgate_prices PASSED [ 24%]
-tests/test_pipeline.py::TestDataCleaning::test_clean_tmd_daily_agromet PASSED [ 28%]
-tests/test_pipeline.py::TestMathematicalFormulas::test_weighted_yield_calculation PASSED [ 32%]
-tests/test_pipeline.py::TestMathematicalFormulas::test_weighted_yield_zero_division PASSED [ 36%]
-tests/test_pipeline.py::TestMathematicalFormulas::test_harvest_ratio_calculation PASSED [ 40%]
-tests/test_pipeline.py::TestMathematicalFormulas::test_harvest_ratio_zero_plant_area PASSED [ 44%]
-tests/test_pipeline.py::TestMathematicalFormulas::test_unharvested_area PASSED [ 48%]
-tests/test_pipeline.py::TestMathematicalFormulas::test_yoy_growth PASSED [ 52%]
-tests/test_pipeline.py::TestMathematicalFormulas::test_cv_calculation PASSED [ 56%]
-tests/test_pipeline.py::TestDoubleCountingPrevention::test_aggregate_double_count_prevention PASSED [ 60%]
-tests/test_pipeline.py::TestAnalyticsAndPlanning::test_bivariate_stats PASSED [ 64%]
-tests/test_pipeline.py::TestAnalyticsAndPlanning::test_quadrant_classification PASSED [ 68%]
-tests/test_pipeline.py::TestAnalyticsAndPlanning::test_calculate_farm_budget PASSED [ 72%]
-tests/test_pipeline.py::TestAnalyticsAndPlanning::test_calculate_farm_budget_invalid PASSED [ 76%]
-tests/test_pipeline.py::TestAnalyticsAndPlanning::test_crop_calendar_guide PASSED [ 80%]
-tests/test_pipeline.py::TestAnalyticsAndPlanning::test_climate_interpretation_academic_caveats PASSED [ 84%]
-tests/test_pipeline.py::TestDataLoaderAndFiles::test_load_real_agriculture_data PASSED [ 88%]
-tests/test_pipeline.py::TestDataLoaderAndFiles::test_load_oae_prices PASSED [ 92%]
-tests/test_pipeline.py::TestDataLoaderAndFiles::test_load_tmd_agromet PASSED [ 96%]
-tests/test_pipeline.py::TestDataLoaderAndFiles::test_load_thailand_geojson PASSED [100%]
-
-tests/test_pipeline.py::TestEnhancedFeatures::test_dynamic_26_crops_loaded PASSED [ 83%]
-tests/test_pipeline.py::TestEnhancedFeatures::test_bottom_provinces_ranking PASSED [ 87%]
-tests/test_pipeline.py::TestEnhancedFeatures::test_gistda_check_crop_validation PASSED [ 90%]
-tests/test_pipeline.py::TestEnhancedFeatures::test_create_ranking_bar_chart_bottom PASSED [ 93%]
-tests/test_pipeline.py::TestEnhancedFeatures::test_create_bivariate_scatter_chart_uncluttered PASSED [ 96%]
-tests/test_pipeline.py::TestEnhancedFeatures::test_farm_budget_detailed_formulas PASSED [ 91%]
-tests/test_pipeline.py::TestEnhancedFeatures::test_src_package_structure PASSED [ 94%]
-tests/test_pipeline.py::TestEnhancedFeatures::test_data_loader_all_symbols PASSED [ 97%]
-tests/test_pipeline.py::TestEnhancedFeatures::test_streamlit_cloud_import_resilience PASSED [100%]
-
-============================= 45 passed in 6.33s ==============================
-```
-
----
-
-## 5. วิธีการเปิดใช้งานระบบ (Quickstart)
-
-```bash
-# 1. ติดตั้ง Dependencies
-pip install -r requirements.txt
-
-# 2. รันการทดสอบ Unit Tests
-python -m pytest tests/test_pipeline.py -v
-
-# 3. เปิดใช้งานแดชบอร์ด Streamlit
-streamlit run app.py
-```
-เปิดเบราว์เซอร์ไปที่: `http://localhost:8501`
+1. **การถอดถอนชุดข้อมูลเดี่ยวในอดีต (Suphan Buri):** ถอดถอนถาวร 100%
+2. **ชุดข้อมูลจริงทั้งหมด:** บันทึกแหล่งที่มา URL ใบอนุญาต และวิธีการคำนวณใน `data_sources.md`
+3. **ผลการทดสอบ `pytest`:** ผ่านครบ 51 จาก 51 รายการทดสอบ (100% Passed)
+4. **ผลการทดสอบ Streamlit AppTest:** 0 Exceptions
