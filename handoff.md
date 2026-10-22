@@ -21,7 +21,7 @@
    - **TAB 4: ผู้ช่วยวางแผนเพาะปลูก (Crop Planning Assistant)**
    - **TAB 5: ตลาดและเครื่องคำนวณฟาร์ม (Market & Farm Calculator)**
 4. **ความน่าเชื่อถือและการทดสอบ:**
-   - ชุดทดสอบ Unit Tests อัตโนมัติ 25 การทดสอบ ครอบคลุม 100% (ผ่านครบ 25/25)
+   - ชุดทดสอบ Unit Tests อัตโนมัติ 31 การทดสอบ ครอบคลุม 100% (ผ่านครบ 31/31)
    - ผ่านการทดสอบรันแอปพลิเคชัน Streamlit แบบ Headless AppTest โดยไม่มีข้อผิดพลาด
 
 ---
@@ -48,7 +48,7 @@
   1. ฝนเชิงพื้นที่ 77 จังหวัดทั่วประเทศ (สสน. HII IDW พ.ศ. 2561–2562)
   2. แนวโน้มฝนสะสมภาพรวมประเทศระยะยาว (สสน. HII 1970–2025)
   3. สถานีตรวจอากาศเพื่อการเกษตรรายวัน (กรมอุตุนิยมวิทยา TMD Catalog `c1-1-3-7`, 34 สถานี)
-- **Bivariate Scatter & Academic Interpretation:** คำนวณ Pearson $r$, Spearman $\rho$, $p$-value พร้อมบทวิเคราะห์ทางวิชาการและข้อพึงระวัง ("Correlation ไม่ใช่ Causation")
+- **Uncluttered Bivariate Scatter & Academic Interpretation:** กราฟ Scatter Plot สะอาดตา นำป้ายข้อความทับจุดออก แสดงชื่อจังหวัดบน Hover Tooltip เท่านั้น พร้อมเส้นแนวโน้ม OLS, ค่าสถิติ Pearson $r$, $p$-value, จำนวนตัวอย่าง $n$ และคำอธิบายความแตกต่างระหว่างความสัมพันธ์กับความเป็นเหตุเป็นผล (Correlation vs Causation)
 - **Area vs Yield Quadrants:** กราฟ Scatter Plot 4 กลุ่มผลิตภาพตามค่ามัธยฐาน
 - **Risk & Review Monitoring:** เกณฑ์อัตราการเก็บเกี่ยวตรวจสอบ (ค่าเริ่มต้น < 90%) พร้อมติดธงเตือน `⚠️ สัญญาณตรวจทาน` และคำนวณเนื้อที่เสียหายจริง
 
@@ -63,7 +63,8 @@
 - **Part A: สถิติราคาหน้าไร่นา สศก. (พ.ศ. 2561–2562):**
   - ข้อมูลจริงจาก OAE Data Catalog ID 35 ครอบคลุม 95 สินค้า 1,979 รายการรายสัปดาห์
   - แสดงราคาล่าสุด, ต่ำสุด, สูงสุด, ราคาเฉลี่ย, กราฟแนวโน้มรายสัปดาห์ และปุ่มดาวน์โหลด CSV
-- **Part B: Interactive Farm Calculator:**
+- **Part B: Interactive Farm Calculator & Formula Disclosure:**
+  - กล่องแสดงสูตรคำนวณคณิตศาสตร์และตัวแปรทางการเงินอย่างชัดเจน
   - กำหนดค่าเริ่มต้นอัตโนมัติจากผลผลิตเฉลี่ยของจังหวัดและราคาตลาด สศก.
   - ผู้ใช้กรอกขนาดแปลง (ไร่) และต้นทุนจริง (เมล็ด/ท่อนพันธุ์, ปุ๋ย, สารเคมี, แรงงาน, เชื้อเพลิง/สูบน้ำ, ค่าเช่าที่ดิน)
   - คำนวณรายรับรวม, ต้นทุนรวม, กำไร/ขาดทุนสุทธิ, อัตรากำไร (%), ต้นทุนต่อ กก.
@@ -122,7 +123,14 @@ tests/test_pipeline.py::TestDataLoaderAndFiles::test_load_oae_prices PASSED [ 92
 tests/test_pipeline.py::TestDataLoaderAndFiles::test_load_tmd_agromet PASSED [ 96%]
 tests/test_pipeline.py::TestDataLoaderAndFiles::test_load_thailand_geojson PASSED [100%]
 
-============================= 25 passed in 2.25s ==============================
+tests/test_pipeline.py::TestEnhancedFeatures::test_dynamic_26_crops_loaded PASSED [ 83%]
+tests/test_pipeline.py::TestEnhancedFeatures::test_bottom_provinces_ranking PASSED [ 87%]
+tests/test_pipeline.py::TestEnhancedFeatures::test_gistda_check_crop_validation PASSED [ 90%]
+tests/test_pipeline.py::TestEnhancedFeatures::test_create_ranking_bar_chart_bottom PASSED [ 93%]
+tests/test_pipeline.py::TestEnhancedFeatures::test_create_bivariate_scatter_chart_uncluttered PASSED [ 96%]
+tests/test_pipeline.py::TestEnhancedFeatures::test_farm_budget_detailed_formulas PASSED [100%]
+
+============================= 31 passed in 5.42s ==============================
 ```
 
 ---

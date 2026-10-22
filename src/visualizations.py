@@ -150,9 +150,10 @@ def create_ranking_bar_chart(
     title: str,
     x_label: str,
     unit: str,
-    selected_item: Optional[str] = None
+    selected_item: Optional[str] = None,
+    is_bottom: bool = False
 ) -> go.Figure:
-    """Horizontal bar chart for rankings (Top 10 provinces or crops)."""
+    """Horizontal bar chart for rankings (Top 10 or Bottom 10 provinces or crops)."""
     fig = go.Figure()
     if df.empty:
         apply_standard_layout(
@@ -162,14 +163,18 @@ def create_ranking_bar_chart(
         )
         return fig
 
-    plot_df = df.sort_values(by=x_col, ascending=True).copy()
+    # Plotly horizontal bar puts bottom row of df at the top of the chart.
+    # For Top ranking: ascending=True puts highest at the top.
+    # For Bottom ranking: ascending=False puts lowest at the top.
+    plot_df = df.sort_values(by=x_col, ascending=not is_bottom).copy() if is_bottom else df.sort_values(by=x_col, ascending=True).copy()
     
+    default_bar_color = COLOR_WARNING if is_bottom else COLOR_FOREST_MED
     bar_colors = []
     for item in plot_df[y_col]:
         if selected_item and item == selected_item:
-            bar_colors.append(COLOR_WARNING)
+            bar_colors.append(COLOR_GOLD if is_bottom else COLOR_WARNING)
         else:
-            bar_colors.append(COLOR_FOREST_MED)
+            bar_colors.append(default_bar_color)
 
     text_labels = []
     for v in plot_df[x_col]:
@@ -199,6 +204,7 @@ def create_ranking_bar_chart(
         margin=dict(l=10, r=60, t=40, b=30)
     )
     return fig
+
 
 
 def create_trend_line_chart(
@@ -269,10 +275,14 @@ def create_bivariate_scatter_chart(
     y_label: str,
     x_unit: str,
     y_unit: str,
-    text_col: Optional[str] = "year",
-    correlation_val: Optional[float] = None
+    text_col: Optional[str] = "province",
+    correlation_val: Optional[float] = None,
+    p_val: Optional[float] = None,
+    n_samples: Optional[int] = None
 ) -> go.Figure:
-    """Scatter plot of Climate vs Agriculture with OLS linear trendline."""
+    """Scatter plot of Climate vs Agriculture with OLS linear trendline.
+    Hides dot text labels to prevent canvas clutter, showing province/year cleanly on hover.
+    """
     clean_df = df.dropna(subset=[x_col, y_col]).copy()
     if len(clean_df) < 2:
         fig = go.Figure()
@@ -283,27 +293,48 @@ def create_bivariate_scatter_chart(
         )
         return fig
 
+    hover_col = text_col if (text_col and text_col in clean_df.columns) else None
+
+    # Do not set text=hover_col to prevent permanent text markers cluttering the plot canvas
     fig = px.scatter(
         clean_df,
         x=x_col,
         y=y_col,
-        text=text_col if text_col in clean_df.columns else None,
+        hover_name=hover_col,
         trendline="ols",
         trendline_color_override=COLOR_WARNING,
         color_discrete_sequence=[COLOR_FOREST_DARK]
     )
 
+    if hover_col == "province":
+        hover_header = "<b>จังหวัด%{hovertext}</b>"
+    elif hover_col == "year":
+        hover_header = "<b>ปี พ.ศ. %{hovertext}</b>"
+    elif hover_col:
+        hover_header = "<b>%{hovertext}</b>"
+    else:
+        hover_header = ""
+
     fig.update_traces(
-        marker=dict(size=10, opacity=0.85, line=dict(color="white", width=1.5)),
-        textposition="top center",
+        marker=dict(size=9, opacity=0.85, line=dict(color="white", width=1.2)),
         hovertemplate=(
-            f"<b>ปี พ.ศ. %{{text}}</b><br>"
+            f"{hover_header}<br>"
             f"{x_label}: <b>%{{x:,.2f}} {x_unit}</b><br>"
             f"{y_label}: <b>%{{y:,.2f}} {y_unit}</b><extra></extra>"
         )
     )
 
-    subtitle = f" (Pearson r = {correlation_val:+.3f})" if correlation_val is not None and not np.isnan(correlation_val) else ""
+    stat_parts = []
+    if correlation_val is not None and not np.isnan(correlation_val):
+        stat_parts.append(f"Pearson r = {correlation_val:+.3f}")
+    if p_val is not None and not np.isnan(p_val):
+        stat_parts.append(f"p = {p_val:.4f}")
+    if n_samples is not None:
+        stat_parts.append(f"n = {n_samples}")
+    elif len(clean_df) > 0:
+        stat_parts.append(f"n = {len(clean_df)}")
+
+    subtitle = f" ({', '.join(stat_parts)})" if stat_parts else ""
     apply_standard_layout(
         fig,
         title=dict(text=f"<b>{title}{subtitle}</b>", font=dict(size=14, color=COLOR_FOREST_DARK)),

@@ -324,3 +324,116 @@ class TestDataLoaderAndFiles:
         gj = load_thailand_geojson()
         assert gj["type"] == "FeatureCollection"
         assert len(gj["features"]) == 77
+
+
+class TestEnhancedFeatures:
+    def test_dynamic_26_crops_loaded(self):
+        from src.data_loader import load_agriculture_data
+        from src.data_cleaning import clean_agriculture_data
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        unique_crops = df_ag["product"].unique()
+        assert len(unique_crops) == 26
+        assert "มันสำปะหลัง" in unique_crops
+        assert "ข้าวนาปี" in unique_crops
+        assert "ข้าวนาปรัง" in unique_crops
+        assert "ข้าวโพดเลี้ยงสัตว์" in unique_crops
+
+    def test_bottom_provinces_ranking(self):
+        df_mock = pd.DataFrame({
+            "province": ["เชียงใหม่", "ลำพูน", "ลำปาง", "แพร่", "น่าน"],
+            "geo_level": ["province", "province", "province", "province", "province"],
+            "production_ton": [500.0, 100.0, 20.0, 0.0, np.nan],
+            "area_plant_rai": [1000.0, 200.0, 50.0, 0.0, 0.0],
+            "area_harvest_rai": [900.0, 180.0, 40.0, 0.0, 0.0]
+        })
+        # Top 2
+        top_res = get_top_provinces(df_mock, metric="production_ton", top_n=2, ascending=False)
+        assert len(top_res) == 2
+        assert top_res.iloc[0]["province"] == "เชียงใหม่"
+        assert top_res.iloc[1]["province"] == "ลำพูน"
+
+        # Bottom 2 (should filter 0 and NaN and return 20.0 and 100.0)
+        bot_res = get_top_provinces(df_mock, metric="production_ton", top_n=2, ascending=True)
+        assert len(bot_res) == 2
+        assert bot_res.iloc[0]["province"] == "ลำปาง"
+        assert bot_res.iloc[0]["production_ton"] == 20.0
+        assert bot_res.iloc[1]["province"] == "ลำพูน"
+        assert bot_res.iloc[1]["production_ton"] == 100.0
+
+    def test_gistda_check_crop_validation(self):
+        from src.data_loader import query_gistda_check_crop
+        # Outside Thailand bounds
+        res_out = query_gistda_check_crop(lat=45.0, lon=2.0)
+        assert res_out["status"] == "invalid_coordinates"
+
+        # Inside Thailand but without key
+        res_no_key = query_gistda_check_crop(lat=14.5, lon=100.5, api_key="")
+        assert res_no_key["status"] == "no_key"
+        assert "opendata.gistda.or.th" in res_no_key["message"]
+
+    def test_create_ranking_bar_chart_bottom(self):
+        from src.visualizations import create_ranking_bar_chart
+        df = pd.DataFrame({"province": ["ก", "ข"], "production_ton": [10.0, 20.0]})
+        fig_top = create_ranking_bar_chart(df, x_col="production_ton", y_col="province", title="Top", x_label="ตัน", unit="ตัน", is_bottom=False)
+        assert fig_top is not None
+        fig_bot = create_ranking_bar_chart(df, x_col="production_ton", y_col="province", title="Bot", x_label="ตัน", unit="ตัน", is_bottom=True)
+        assert fig_bot is not None
+
+    def test_create_bivariate_scatter_chart_uncluttered(self):
+        from src.visualizations import create_bivariate_scatter_chart
+        df = pd.DataFrame({
+            "province": ["ก", "ข", "ค", "ง"],
+            "rain": [1000.0, 1200.0, 1400.0, 1600.0],
+            "yield": [400.0, 450.0, 500.0, 550.0]
+        })
+        fig = create_bivariate_scatter_chart(
+            df,
+            x_col="rain",
+            y_col="yield",
+            title="Rain vs Yield",
+            x_label="Rain",
+            y_label="Yield",
+            x_unit="mm",
+            y_unit="kg/rai",
+            text_col="province",
+            correlation_val=0.99,
+            p_val=0.01,
+            n_samples=4
+        )
+        assert fig is not None
+        # Scatter traces should not have text on dots (mode is markers)
+        scatter_trace = fig.data[0]
+        assert getattr(scatter_trace, "text", None) is None
+        assert "Pearson r = +0.990" in fig.layout.title.text
+
+    def test_farm_budget_detailed_formulas(self):
+        # 20 rai, 800 kg/rai = 16,000 kg total
+        # Selling price: 12.0 Baht/kg -> Revenue: 192,000 Baht
+        # Costs: 8,000 (seed) + 20,000 (fert) + 6,000 (chem) + 16,000 (labor) + 8,000 (energy) + 6,000 (rent) = 64,000 Baht
+        # Cost per rai: 64,000 / 20 = 3,200 Baht/rai
+        # Cost per kg: 64,000 / 16,000 = 4.0 Baht/kg
+        # Break-even price: 4.0 Baht/kg
+        # Break-even yield: 64,000 / (12.0 * 20) = 266.67 kg/rai
+        # Net profit: 192,000 - 64,000 = 128,000 Baht
+        res = calculate_farm_budget(
+            planted_area_rai=20.0,
+            expected_yield_kg_rai=800.0,
+            selling_price_baht_kg=12.0,
+            seeds_cost=8000.0,
+            fertilizer_cost=20000.0,
+            water_energy_cost=8000.0,
+            labor_cost=16000.0,
+            land_rent_cost=6000.0,
+            other_cost=6000.0
+        )
+        assert res["is_valid"] is True
+        assert res["total_yield_kg"] == 16000.0
+        assert res["total_yield_ton"] == 16.0
+        assert res["gross_revenue"] == 192000.0
+        assert res["total_cost"] == 64000.0
+        assert res["net_profit"] == 128000.0
+        assert res["cost_per_rai"] == 3200.0
+        assert res["cost_per_kg"] == 4.0
+        assert res["breakeven_price_kg"] == 4.0
+        assert pytest.approx(res["breakeven_yield_kg_rai"], 0.01) == 266.67
+

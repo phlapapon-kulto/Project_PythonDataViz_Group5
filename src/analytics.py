@@ -446,7 +446,8 @@ def get_top_provinces(
     ascending: bool = False
 ) -> pd.DataFrame:
     """
-    Get top N provinces by specified agricultural metric, strictly excluding aggregates.
+    Get top or bottom N provinces by specified agricultural metric, strictly excluding aggregates.
+    When ascending=True (bottom N), filters out zero and non-producing provinces.
     """
     prov_df = df[df["geo_level"] == "province"].copy()
     if prov_df.empty or metric not in prov_df.columns:
@@ -471,7 +472,14 @@ def get_top_provinces(
         np.nan
     )
     
-    res = grouped.sort_values(by=metric, ascending=ascending).head(top_n).reset_index(drop=True)
+    if ascending:
+        # For Bottom ranking, only include provinces that actually produced/cultivated (> 0)
+        positive_df = grouped[grouped[metric].notna() & (grouped[metric] > 0)]
+        target_df = positive_df if not positive_df.empty else grouped[grouped[metric].notna()]
+    else:
+        target_df = grouped[grouped[metric].notna()]
+
+    res = target_df.sort_values(by=metric, ascending=ascending).head(top_n).reset_index(drop=True)
     return res
 
 
@@ -482,9 +490,9 @@ def get_top_crops(
     ascending: bool = False
 ) -> pd.DataFrame:
     """
-    Get top N crops by specified agricultural metric, strictly avoiding double counting.
+    Get top or bottom N crops by specified agricultural metric, strictly avoiding double counting.
+    When ascending=True (bottom N), filters out zero/non-producing crops.
     """
-    # Use provincial records sum to ensure consistency
     prov_df = df[df["geo_level"] == "province"].copy()
     if prov_df.empty or metric not in prov_df.columns:
         return pd.DataFrame()
@@ -506,5 +514,12 @@ def get_top_crops(
         np.nan
     )
     
-    res = grouped.sort_values(by=metric, ascending=ascending).head(top_n).reset_index(drop=True)
+    if ascending:
+        positive_df = grouped[grouped[metric].notna() & (grouped[metric] > 0)]
+        target_df = positive_df if not positive_df.empty else grouped[grouped[metric].notna()]
+    else:
+        target_df = grouped[grouped[metric].notna()]
+
+    res = target_df.sort_values(by=metric, ascending=ascending).head(top_n).reset_index(drop=True)
     return res
+
