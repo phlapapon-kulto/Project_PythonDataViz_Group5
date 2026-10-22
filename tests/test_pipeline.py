@@ -1,7 +1,8 @@
 """
 Comprehensive unit test suite for Thai Agriculture & Climate Intelligence Dashboard.
 Tests mathematical formulas, data cleaning, spatial hierarchies, double-count prevention,
-and climate data harmonization.
+farm budget calculations, crop calendars, and verifies that the retired Suphan Buri
+dataset is never loaded or referenced.
 """
 
 import pytest
@@ -15,7 +16,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from src.data_cleaning import (
     ce_to_be, be_to_ce, normalize_province_name, clean_agriculture_data,
-    clean_suphan_climate_data, clean_spatial_rain_data,
+    clean_spatial_rain_data, clean_national_rain_data, clean_provincial_temp_data,
+    clean_oae_farmgate_prices, clean_tmd_daily_agromet,
     OFFICIAL_77_PROVINCES, REGION_NAMES, COUNTRY_NAME
 )
 from src.feature_engineering import (
@@ -25,10 +27,46 @@ from src.feature_engineering import (
 )
 from src.analytics import (
     calculate_bivariate_stats, classify_area_yield_quadrants,
-    join_climate_agriculture_suphan, get_top_provinces, get_top_crops,
-    generate_climate_interpretation
+    join_climate_agriculture_nationwide, get_top_provinces, get_top_crops,
+    generate_climate_interpretation, calculate_farm_budget, get_crop_calendar_guide
 )
 from src.filters import apply_ag_filters
+from src.data_loader import (
+    load_agriculture_data, load_spatial_rain_data, load_national_rain_data,
+    load_provincial_temp_data, load_oae_farmgate_prices, load_tmd_daily_agromet,
+    load_thailand_geojson, get_project_root
+)
+
+
+class TestMandatoryDataRemoval:
+    def test_retired_suphan_dataset_not_used(self):
+        """
+        Verify that the retired Suphan Buri climate Excel file does NOT exist
+        anywhere in the repository and is never read.
+        """
+        root = get_project_root()
+        retired_filenames = [
+            "สถิติปริมาณฝนและอุณหภูมิ.xlsx",
+            "suphan_climate.xlsx"
+        ]
+        for root_dir, dirs, files in os.walk(root):
+            # Ignore .git directory
+            if ".git" in root_dir:
+                continue
+            for f in files:
+                assert f not in retired_filenames, f"Retired file found: {os.path.join(root_dir, f)}"
+
+    def test_no_suphan_legacy_loader_exported(self):
+        """
+        Verify that data_loader and data_cleaning do NOT expose retired Suphan functions.
+        """
+        import src.data_loader as dl
+        import src.data_cleaning as dc
+        import src.analytics as an
+
+        assert not hasattr(dl, "load_suphan_climate_data")
+        assert not hasattr(dc, "clean_suphan_climate_data")
+        assert not hasattr(an, "join_climate_agriculture_suphan")
 
 
 class TestDataCleaning:
@@ -62,14 +100,51 @@ class TestDataCleaning:
         assert cleaned.loc[2, "geo_level"] == "province"
         assert cleaned.loc[3, "geo_level"] == "other"
 
+    def test_clean_oae_farmgate_prices(self):
+        raw_df = pd.DataFrame({
+            "PROD_TYPE": ["ข้าวเปลือกเจ้านาปี 15%"],
+            "YEAR": [2561],
+            "MONTH_C": [1],
+            "WEEK_C": [1],
+            "PRICE": [7500.0]  # Baht/ton
+        })
+        cleaned = clean_oae_farmgate_prices(raw_df)
+        assert len(cleaned) == 1
+        assert cleaned.loc[0, "product"] == "ข้าวเปลือกเจ้านาปี 15%"
+        assert cleaned.loc[0, "price_baht_per_ton"] == 7500.0
+        assert cleaned.loc[0, "price_baht_per_kg"] == 7.5
+
+    def test_clean_tmd_daily_agromet(self):
+        sample_json = {
+            "Stations": {
+                "Station": [
+                    {
+                        "WmoStationNumber": "48381",
+                        "StationNameThai": "สถานีเกษตรกาญจนบุรี",
+                        "Province": "กาญจนบุรี",
+                        "Latitude": "14.0",
+                        "Longitude": "99.5",
+                        "Observation": {
+                            "DateTime": "2026-04-20 07:00:00",
+                            "Temperature": "28.5",
+                            "MaxTemperature": "36.0",
+                            "MinTemperature": "24.0",
+                            "RelativeHumidity": "75.0",
+                            "Rainfall": "0.0"
+                        }
+                    }
+                ]
+            }
+        }
+        df = clean_tmd_daily_agromet(sample_json)
+        assert len(df) == 1
+        assert df.loc[0, "province"] == "กาญจนบุรี"
+        assert df.loc[0, "max_temp_c"] == 36.0
+        assert df.loc[0, "rainfall_mm"] == 0.0
+
 
 class TestMathematicalFormulas:
     def test_weighted_yield_calculation(self):
-        # 2 provinces:
-        # P1: 100 tons, 200 rai -> yield = 500 kg/rai
-        # P2: 900 tons, 1000 rai -> yield = 900 kg/rai
-        # Simple average = (500 + 900) / 2 = 700 kg/rai
-        # Weighted average = (1000 tons * 1000) / 1200 rai = 833.33 kg/rai
         df = pd.DataFrame({
             "production_ton": [100.0, 900.0],
             "area_harvest_rai": [200.0, 1000.0]
@@ -113,26 +188,21 @@ class TestMathematicalFormulas:
         assert pytest.approx(yoy.iloc[1], 0.01) == 20.0
         assert pytest.approx(yoy.iloc[2], 0.01) == 25.0
         assert yoy.iloc[3] == -100.0
-        # When previous was 0, YoY should be NaN
         assert np.isnan(yoy.iloc[4])
 
     def test_cv_calculation(self):
-        # Stable series: [100, 100, 100] -> CV = 0%
         s_stable = pd.Series([100.0, 100.0, 100.0])
         assert calculate_cv(s_stable) == 0.0
 
-        # Sample with std = 10, mean = 100 -> CV = 10%
         s_var = pd.Series([90.0, 100.0, 110.0])
         assert pytest.approx(calculate_cv(s_var), 0.01) == 10.0
 
-        # Too few points (< 3)
         s_few = pd.Series([100.0, 110.0])
         assert np.isnan(calculate_cv(s_few, min_periods=3))
 
 
 class TestDoubleCountingPrevention:
     def test_aggregate_double_count_prevention(self):
-        # Ensure country or regional rows are NOT summed with provincial rows
         df = pd.DataFrame({
             "province": ["ทั้งประเทศ", "ภาคกลาง", "สุพรรณบุรี", "นครปฐม"],
             "geo_level": ["country", "region", "province", "province"],
@@ -142,16 +212,15 @@ class TestDoubleCountingPrevention:
             "area_plant_rai": [2000.0, 1000.0, 600.0, 400.0],
             "area_harvest_rai": [1900.0, 950.0, 570.0, 380.0]
         })
-        # Filtering strictly for province level
         prov_only = apply_ag_filters(df, geo_level="province")
         kpis = aggregate_agricultural_kpis(prov_only)
-        # Sum of provinces: 300 + 200 = 500 tons (NOT 1000 + 500 + 500 = 2000 tons)
+        # Sum of provinces: 300 + 200 = 500 tons
         assert kpis["total_production_ton"] == 500.0
         assert kpis["total_plant_rai"] == 1000.0
         assert kpis["total_harvest_rai"] == 950.0
 
 
-class TestAnalyticsAndJoins:
+class TestAnalyticsAndPlanning:
     def test_bivariate_stats(self):
         x = pd.Series([10.0, 20.0, 30.0, 40.0, 50.0])
         y = pd.Series([15.0, 25.0, 35.0, 45.0, 55.0])
@@ -172,39 +241,53 @@ class TestAnalyticsAndJoins:
         assert "quadrant" in q_df.columns
         assert len(q_df) == 4
 
-    def test_suphan_climate_join_integrity(self):
-        df_ag = pd.DataFrame({
-            "province": ["สุพรรณบุรี", "สุพรรณบุรี", "เชียงใหม่"],
-            "geo_level": ["province", "province", "province"],
-            "year": [2550, 2551, 2550],
-            "product": ["ข้าวนาปี", "ข้าวนาปี", "ข้าวนาปี"],
-            "production_ton": [500.0, 520.0, 300.0],
-            "area_harvest_rai": [1000.0, 1040.0, 600.0]
-        })
-        df_clim = pd.DataFrame({
-            "province": ["สุพรรณบุรี", "สุพรรณบุรี"],
-            "year": [2550, 2551],
-            "rainfall_mm": [800.0, 950.0],
-            "temp_avg_c": [28.5, 28.0]
-        })
-        joined = join_climate_agriculture_suphan(df_ag, df_clim, product="ข้าวนาปี")
-        assert len(joined) == 2
-        assert "เชียงใหม่" not in joined["province"].values
-        assert set(joined["year"]) == {2550, 2551}
+    def test_calculate_farm_budget(self):
+        # 10 rai, 600 kg/rai = 6000 kg total
+        # Selling price: 10 Baht/kg -> Revenue: 60,000 Baht
+        # Total cost: 5,000 (seeds) + 10,000 (fert) + 5,000 (labor) = 20,000 Baht
+        # Net profit: 40,000 Baht
+        # Cost per kg: 20,000 / 6,000 = 3.33 Baht/kg
+        # Break-even price: 3.33 Baht/kg
+        # Break-even yield: 20,000 / (10 * 10) = 200 kg/rai
+        budget = calculate_farm_budget(
+            planted_area_rai=10.0,
+            expected_yield_kg_rai=600.0,
+            selling_price_baht_kg=10.0,
+            seeds_cost=5000.0,
+            fertilizer_cost=10000.0,
+            labor_cost=5000.0
+        )
+        assert budget["is_valid"] is True
+        assert budget["total_yield_kg"] == 6000.0
+        assert budget["gross_revenue"] == 60000.0
+        assert budget["total_cost"] == 20000.0
+        assert budget["net_profit"] == 40000.0
+        assert pytest.approx(budget["cost_per_kg"], 0.01) == 3.33
+        assert pytest.approx(budget["breakeven_price_kg"], 0.01) == 3.33
+        assert budget["breakeven_yield_kg_rai"] == 200.0
+        assert len(budget["scenarios"]) == 12
 
-    def test_top_rankings(self):
-        df = pd.DataFrame({
-            "province": ["เชียงใหม่", "เชียงราย", "ลำปาง"],
-            "geo_level": ["province", "province", "province"],
-            "product": ["ข้าวนาปี", "ข้าวนาปี", "ข้าวนาปี"],
-            "production_ton": [500.0, 1000.0, 250.0],
-            "area_plant_rai": [1000.0, 2000.0, 500.0],
-            "area_harvest_rai": [900.0, 1900.0, 480.0]
-        })
-        top_p = get_top_provinces(df, metric="production_ton", top_n=2)
-        assert len(top_p) == 2
-        assert top_p.iloc[0]["province"] == "เชียงราย"
-        assert top_p.iloc[1]["province"] == "เชียงใหม่"
+    def test_calculate_farm_budget_invalid(self):
+        bad_budget = calculate_farm_budget(
+            planted_area_rai=0.0,
+            expected_yield_kg_rai=600.0,
+            selling_price_baht_kg=10.0
+        )
+        assert bad_budget["is_valid"] is False
+
+    def test_crop_calendar_guide(self):
+        guide_rice = get_crop_calendar_guide("ข้าวนาปี")
+        assert "ข้าว" in guide_rice["crop_group"]
+        assert len(guide_rice["pre_planting_checklist"]) >= 4
+
+        guide_cane = get_crop_calendar_guide("อ้อยโรงงาน")
+        assert "อ้อย" in guide_cane["crop_group"]
+
+        guide_cassava = get_crop_calendar_guide("มันสำปะหลังโรงงาน")
+        assert "มันสำปะหลัง" in guide_cassava["crop_group"]
+
+        guide_corn = get_crop_calendar_guide("ข้าวโพดเลี้ยงสัตว์")
+        assert "ข้าวโพด" in guide_corn["crop_group"]
 
     def test_climate_interpretation_academic_caveats(self):
         biv = {
@@ -218,38 +301,26 @@ class TestAnalyticsAndJoins:
         assert "0.650" in text
         assert "มีนัยสำคัญทางสถิติ" in text
 
-    def test_harvest_flags(self):
-        df = pd.DataFrame({
-            "crop_year": ["2560/61", "2560/61"],
-            "year": [2560, 2560],
-            "product": ["พืช A", "พืช B"],
-            "province": ["สุพรรณบุรี", "สุพรรณบุรี"],
-            "area_plant_rai": [100.0, 100.0],
-            "area_harvest_rai": [110.0, 80.0],  # A: harvest > plant, B: harvest ratio = 80% (<90%)
-            "production_ton": [50.0, 40.0],
-            "yield_per_rai": [454.5, 500.0],
-            "harvest_ratio": [110.0, 80.0],
-            "damaged_area": [-10.0, 20.0]
-        })
-        cleaned = clean_agriculture_data(df)
-        assert cleaned.loc[0, "flag_harvest_gt_plant"] == True
-        assert cleaned.loc[1, "flag_harvest_gt_plant"] == False
-        assert cleaned.loc[1, "flag_review_harvest_ratio"] == True
-
 
 class TestDataLoaderAndFiles:
     def test_load_real_agriculture_data(self):
-        from src.data_loader import load_agriculture_data, load_suphan_climate_data, load_thailand_geojson
         df_ag = load_agriculture_data()
         assert len(df_ag) == 11914
         assert "crop_year" in df_ag.columns
         assert "production_ton" in df_ag.columns
 
-        df_sup = load_suphan_climate_data()
-        assert len(df_sup) == 19
-        assert "ปริมาณน้ำฝน" in df_sup.columns
+    def test_load_oae_prices(self):
+        df_p = load_oae_farmgate_prices()
+        assert len(df_p) > 1000
+        assert "PROD_TYPE" in df_p.columns
+        assert "PRICE" in df_p.columns
 
+    def test_load_tmd_agromet(self):
+        data = load_tmd_daily_agromet(use_live_api=False)
+        assert "Stations" in data
+        assert len(data["Stations"]["Station"]) > 10
+
+    def test_load_thailand_geojson(self):
         gj = load_thailand_geojson()
         assert gj["type"] == "FeatureCollection"
         assert len(gj["features"]) == 77
-

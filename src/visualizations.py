@@ -484,3 +484,131 @@ def create_yoy_bar_chart(
         margin=dict(l=20, r=20, t=40, b=30)
     )
     return fig
+
+
+def create_price_trend_chart(
+    df_price: pd.DataFrame,
+    product_name: str,
+    unit_mode: str = "baht_per_kg"
+) -> go.Figure:
+    """
+    Time series line chart for official OAE farmgate commodity prices.
+    Supports Baht/kg or Baht/ton.
+    """
+    fig = go.Figure()
+    if df_price.empty:
+        apply_standard_layout(
+            fig,
+            title=f"แนวโน้มราคา {product_name} (สศก.)",
+            annotations=[dict(text="ไม่มีข้อมูลราคาสำหรับสินค้าที่เลือก", showarrow=False, font=dict(size=14, color=COLOR_TEXT_MUTED))]
+        )
+        return fig
+
+    # Sort chronologically by year, month, week
+    plot_df = df_price.sort_values(by=["year", "month", "week"]).copy()
+    plot_df["time_label"] = (
+        "ปี " + plot_df["year"].astype(str) +
+        " ด." + plot_df["month"].astype(str) +
+        " ส." + plot_df["week"].astype(str)
+    )
+
+    y_col = "price_baht_per_kg" if unit_mode == "baht_per_kg" else "price_baht_per_ton"
+    unit_label = "บาท/กก." if unit_mode == "baht_per_kg" else "บาท/ตัน"
+
+    fig.add_trace(go.Scatter(
+        x=plot_df["time_label"],
+        y=plot_df[y_col],
+        mode="lines+markers",
+        name=product_name,
+        line=dict(color=COLOR_FOREST_MED, width=2.5),
+        marker=dict(size=6, color=COLOR_FOREST_DARK),
+        hovertemplate=f"<b>%{{x}}</b><br>ราคาหน้าไร่นา: <b>%{{y:,.2f}} {unit_label}</b><extra></extra>"
+    ))
+
+    apply_standard_layout(
+        fig,
+        title=dict(text=f"<b>แนวโน้มราคาที่เกษตรกรขายได้ที่ไร่นา: {product_name}</b> (สศก.)", font=dict(size=14, color=COLOR_FOREST_DARK)),
+        xaxis=dict(title="คาบเวลา (ปี/เดือน/สัปดาห์)", showgrid=True, gridcolor="#E2E8F0"),
+        yaxis=dict(title=f"ราคา ({unit_label})", showgrid=True, gridcolor="#E2E8F0"),
+        height=380,
+        margin=dict(l=20, r=20, t=40, b=40)
+    )
+    return fig
+
+
+def create_cost_breakdown_pie(
+    cost_dict: Dict[str, float],
+    title: str = "โครงสร้างสัดส่วนต้นทุนการผลิต"
+) -> go.Figure:
+    """
+    Donut chart displaying cost breakdown (Seeds, Fertilizer, Water, Labor, Rent, Others).
+    """
+    fig = go.Figure()
+    labels = list(cost_dict.keys())
+    values = list(cost_dict.values())
+
+    total = sum(values)
+    if total <= 0:
+        apply_standard_layout(
+            fig,
+            title=title,
+            annotations=[dict(text="กรุณาระบุต้นทุนอย่างน้อย 1 รายการ", showarrow=False, font=dict(size=14, color=COLOR_TEXT_MUTED))]
+        )
+        return fig
+
+    colors = ["#2D6A4F", "#52B788", "#74C69D", "#E07A5F", "#E9C46A", "#8D99AE"]
+
+    fig.add_trace(go.Pie(
+        labels=labels,
+        values=values,
+        hole=0.45,
+        marker=dict(colors=colors, line=dict(color="#FFFFFF", width=2)),
+        textinfo="percent+label",
+        hovertemplate="<b>%{label}</b><br>ต้นทุน: <b>%{value:,.0f} บาท</b> (%{percent})<extra></extra>"
+    ))
+
+    apply_standard_layout(
+        fig,
+        title=dict(text=f"<b>{title}</b>", font=dict(size=14, color=COLOR_FOREST_DARK)),
+        height=350,
+        margin=dict(l=20, r=20, t=40, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5)
+    )
+    return fig
+
+
+def create_scenario_bar_chart(
+    scenarios: List[Dict[str, Any]],
+    title: str = "การวิเคราะห์ความอ่อนไหวของกำไรสุทธิ (What-if Scenario Simulation)"
+) -> go.Figure:
+    """
+    Bar chart comparing net profit across price/yield sensitivity scenarios.
+    """
+    fig = go.Figure()
+    if not scenarios:
+        apply_standard_layout(fig, title=title)
+        return fig
+
+    labels = [f"ราคา {s['price_change']} | ผลผลิต {s['yield_change']}" for s in scenarios]
+    profits = [s["profit"] for s in scenarios]
+    bar_colors = [COLOR_FOREST_MED if p >= 0 else COLOR_DANGER for p in profits]
+
+    fig.add_trace(go.Bar(
+        x=labels,
+        y=profits,
+        marker=dict(color=bar_colors),
+        text=[f"{p:+,.0f} บ." for p in profits],
+        textposition="outside",
+        hovertemplate="<b>%{x}</b><br>กำไร/ขาดทุนสุทธิ: <b>%{y:,.0f} บาท</b><extra></extra>"
+    ))
+
+    apply_standard_layout(
+        fig,
+        title=dict(text=f"<b>{title}</b>", font=dict(size=14, color=COLOR_FOREST_DARK)),
+        xaxis=dict(title="", tickangle=-30, showgrid=False),
+        yaxis=dict(title="กำไรสุทธิโดยประมาณ (บาท)", showgrid=True, gridcolor="#E2E8F0", zeroline=True, zerolinecolor="#64748B"),
+        height=380,
+        margin=dict(l=20, r=20, t=40, b=60)
+    )
+    return fig
+

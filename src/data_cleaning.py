@@ -125,38 +125,67 @@ def clean_agriculture_data(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def clean_suphan_climate_data(df: pd.DataFrame) -> pd.DataFrame:
+def clean_oae_farmgate_prices(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Clean the Suphan Buri meteorological station dataset.
-    Renames columns to standard identifiers and labels geographic scope.
+    Clean and structure OAE farmgate commodity prices.
+    Converts prices from Baht/ton to Baht/kg and formats temporal fields.
     """
     df = df.copy()
-
-    rename_map = {
-        "ปี": "year",
-        "ปริมาณน้ำฝน": "rainfall_mm",
-        "จำนวนวันที่ฝนตก": "rainy_days",
-        "อุณหภูมิสูงสุด": "temp_max_c",
-        "อุณหภูมิต่ำสุด": "temp_min_c",
-        "อุณหภูมิเฉลี่ยทั้งปี": "temp_avg_c",
-        "RH Max": "rh_max",
-        "RH Min": "rh_min",
-        "RH Avg": "rh_avg",
-        "หน่วยงานเจ้าของข้อมูล": "agency"
+    rename_cols = {
+        "PROD_TYPE": "product",
+        "YEAR": "year",
+        "MONTH_C": "month",
+        "WEEK_C": "week",
+        "PRICE": "price_baht_per_ton"
     }
+    df = df.rename(columns=rename_cols)
 
-    df = df.rename(columns=rename_map)
+    df["product"] = df["product"].astype(str).str.strip()
+    df["year"] = pd.to_numeric(df["year"], errors="coerce")
+    df["month"] = pd.to_numeric(df["month"], errors="coerce")
+    df["week"] = pd.to_numeric(df["week"], errors="coerce")
+    df["price_baht_per_ton"] = pd.to_numeric(df["price_baht_per_ton"], errors="coerce")
 
-    # Cast numerics
-    for col in ["year", "rainfall_mm", "rainy_days", "temp_max_c", "temp_min_c", "temp_avg_c", "rh_max", "rh_min", "rh_avg"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Add Baht/kg unit: Price (Baht/ton) / 1000
+    df["price_baht_per_kg"] = df["price_baht_per_ton"] / 1000.0
+    df["data_source"] = "สำนักงานเศรษฐกิจการเกษตร (สศก.)"
 
-    df["province"] = "สุพรรณบุรี"
-    df["data_source_type"] = "station_observed"
-    df["station_name"] = "สถานีอุตุนิยมวิทยาจังหวัดสุพรรณบุรี"
+    return df.dropna(subset=["product", "year", "price_baht_per_ton"]).reset_index(drop=True)
 
+
+def clean_tmd_daily_agromet(raw_json: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Clean daily agricultural meteorology observations from TMD (Catalog c1-1-3-7).
+    Parses station records into a tabular structure with standard metrics.
+    """
+    records = []
+    stns = raw_json.get("Stations", {})
+    stn_list = stns.get("Station", []) if isinstance(stns, dict) else []
+
+    if isinstance(stn_list, dict):
+        stn_list = [stn_list]
+
+    for item in stn_list:
+        obs = item.get("Observation", {})
+        prov = normalize_province_name(item.get("Province", ""))
+        records.append({
+            "station_number": item.get("WmoStationNumber", ""),
+            "station_name": item.get("StationNameThai", ""),
+            "province": prov,
+            "latitude": pd.to_numeric(item.get("Latitude"), errors="coerce"),
+            "longitude": pd.to_numeric(item.get("Longitude"), errors="coerce"),
+            "datetime": obs.get("DateTime", ""),
+            "temp_c": pd.to_numeric(obs.get("Temperature"), errors="coerce"),
+            "max_temp_c": pd.to_numeric(obs.get("MaxTemperature"), errors="coerce"),
+            "min_temp_c": pd.to_numeric(obs.get("MinTemperature"), errors="coerce"),
+            "relative_humidity_pct": pd.to_numeric(obs.get("RelativeHumidity"), errors="coerce"),
+            "rainfall_mm": pd.to_numeric(obs.get("Rainfall"), errors="coerce"),
+            "data_source_type": "tmd_daily_agromet_station"
+        })
+
+    df = pd.DataFrame(records)
     return df
+
 
 
 def clean_spatial_rain_data(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:

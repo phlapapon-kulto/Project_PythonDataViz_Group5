@@ -1,10 +1,15 @@
 """
 Data loading module for Thai Agriculture & Climate Intelligence Dashboard.
-Loads agricultural, climate, and geographic datasets with robust fallback and caching.
+Loads agricultural statistics, nationwide open climate datasets, OAE market prices,
+TMD agromet observations, and geographic boundary datasets.
+
+NOTE: The retired single-station Suphan Buri dataset has been completely removed
+in accordance with project governance requirements.
 """
 
 import os
 import json
+import requests
 import pandas as pd
 import numpy as np
 from typing import Optional, Dict, Any, Tuple
@@ -27,22 +32,6 @@ def load_agriculture_data(filepath: Optional[str] = None) -> pd.DataFrame:
 
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Agriculture data file not found at: {filepath}")
-
-    df = pd.read_excel(filepath, sheet_name=0)
-    return df
-
-
-def load_suphan_climate_data(filepath: Optional[str] = None) -> pd.DataFrame:
-    """
-    Load the Suphan Buri meteorological station Excel file.
-    Default path: 'สถิติปริมาณฝนและอุณหภูมิ.xlsx' in project root.
-    """
-    if filepath is None:
-        root = get_project_root()
-        filepath = os.path.join(root, "สถิติปริมาณฝนและอุณหภูมิ.xlsx")
-
-    if not os.path.exists(filepath):
-        raise FileNotFoundError(f"Suphan Buri climate data file not found at: {filepath}")
 
     df = pd.read_excel(filepath, sheet_name=0)
     return df
@@ -91,6 +80,53 @@ def load_provincial_temp_data(filepath: Optional[str] = None) -> pd.DataFrame:
 
     df = pd.read_csv(filepath, encoding="utf-8-sig")
     return df
+
+
+def load_oae_farmgate_prices(filepath: Optional[str] = None) -> pd.DataFrame:
+    """
+    Load official farmgate prices dataset from the Office of Agricultural Economics (OAE).
+    Default path: 'data/raw/oae_farmgate_prices_2561_2562.csv'
+    """
+    if filepath is None:
+        root = get_project_root()
+        filepath = os.path.join(root, "data", "raw", "oae_farmgate_prices_2561_2562.csv")
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"OAE farmgate price file not found at: {filepath}")
+
+    df = pd.read_csv(filepath, encoding="utf-8-sig")
+    return df
+
+
+def load_tmd_daily_agromet(
+    filepath: Optional[str] = None,
+    use_live_api: bool = True,
+    timeout: int = 5
+) -> Dict[str, Any]:
+    """
+    Load daily agricultural meteorology observations from the Thai Meteorological Department (TMD).
+    Attempts live API call (Catalog c1-1-3-7) with automatic fallback to cached sample.
+    """
+    root = get_project_root()
+    if filepath is None:
+        filepath = os.path.join(root, "data", "raw", "tmd_agromet_sample.json")
+
+    if use_live_api:
+        api_url = "https://data.tmd.go.th/api/WeatherTodayByAgro/v1/?uid=api&ukey=api12345&format=json"
+        try:
+            r = requests.get(api_url, timeout=timeout)
+            if r.status_code == 200:
+                data = r.json()
+                if "Stations" in data:
+                    return data
+        except Exception:
+            pass  # Fall back to local cache if network/API fails
+
+    if os.path.exists(filepath):
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    return {}
 
 
 def load_thailand_geojson(filepath: Optional[str] = None) -> Dict[str, Any]:

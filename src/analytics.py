@@ -10,29 +10,267 @@ from scipy import stats
 from typing import Dict, Any, List, Optional, Tuple
 
 
-def join_climate_agriculture_suphan(
-    df_ag: pd.DataFrame,
-    df_climate_suphan: pd.DataFrame,
-    product: Optional[str] = None
-) -> pd.DataFrame:
+def calculate_farm_budget(
+    planted_area_rai: float,
+    expected_yield_kg_rai: float,
+    selling_price_baht_kg: float,
+    seeds_cost: float = 0.0,
+    fertilizer_cost: float = 0.0,
+    water_energy_cost: float = 0.0,
+    labor_cost: float = 0.0,
+    land_rent_cost: float = 0.0,
+    other_cost: float = 0.0
+) -> Dict[str, Any]:
     """
-    Join Suphan Buri station climate data with agricultural statistics for Suphan Buri province.
-    Only joins on identical common years (2550-2562).
-    Never propagates Suphan Buri station data to any other province.
+    Calculate farm budget, cost per unit, break-even price/yield, and sensitivity scenarios.
+    For Tab 5: Market & Farm Calculator.
     """
-    ag_suphan = df_ag[(df_ag["province"] == "สุพรรณบุรี") & (df_ag["geo_level"] == "province")].copy()
-    if product and product != "ทั้งหมด":
-        ag_suphan = ag_suphan[ag_suphan["product"] == product]
-    
-    # Overlapping years
-    joined = pd.merge(
-        ag_suphan,
-        df_climate_suphan,
-        on=["province", "year"],
-        how="inner"
+    if planted_area_rai <= 0 or expected_yield_kg_rai <= 0 or selling_price_baht_kg <= 0:
+        return {
+            "is_valid": False,
+            "message": "กรุณากรอกเนื้อที่เพาะปลูก ผลผลิตคาดการณ์ และราคาขายให้มากกว่า 0"
+        }
+
+    total_yield_kg = planted_area_rai * expected_yield_kg_rai
+    total_yield_ton = total_yield_kg / 1000.0
+
+    gross_revenue = total_yield_kg * selling_price_baht_kg
+    total_cost = (
+        seeds_cost + fertilizer_cost + water_energy_cost +
+        labor_cost + land_rent_cost + other_cost
     )
-    
-    return joined.sort_values(by="year").reset_index(drop=True)
+
+    cost_per_rai = total_cost / planted_area_rai
+    cost_per_kg = total_cost / total_yield_kg if total_yield_kg > 0 else np.nan
+
+    net_profit = gross_revenue - total_cost
+    profit_margin_pct = (net_profit / gross_revenue * 100.0) if gross_revenue > 0 else np.nan
+
+    # Break-even calculations
+    # Break-even price: Price where revenue = cost -> total_cost / total_yield_kg
+    breakeven_price_kg = total_cost / total_yield_kg if total_yield_kg > 0 else np.nan
+    # Break-even yield: Yield where revenue = cost -> total_cost / (selling_price * planted_area)
+    breakeven_yield_kg_rai = total_cost / (selling_price_baht_kg * planted_area_rai) if selling_price_baht_kg > 0 else np.nan
+
+    # What-if sensitivity scenarios
+    scenarios = []
+    for price_factor, p_desc in [(1.1, "+10%"), (1.0, "ฐาน (Base)"), (0.9, "-10%"), (0.8, "-20%")]:
+        for yield_factor, y_desc in [(1.0, "ฐาน (Base)"), (0.9, "-10%"), (0.8, "-20%")]:
+            sim_rev = (total_yield_kg * yield_factor) * (selling_price_baht_kg * price_factor)
+            sim_profit = sim_rev - total_cost
+            scenarios.append({
+                "price_change": p_desc,
+                "yield_change": y_desc,
+                "revenue": sim_rev,
+                "profit": sim_profit,
+                "is_profitable": sim_profit >= 0
+            })
+
+    return {
+        "is_valid": True,
+        "planted_area_rai": planted_area_rai,
+        "expected_yield_kg_rai": expected_yield_kg_rai,
+        "total_yield_kg": total_yield_kg,
+        "total_yield_ton": total_yield_ton,
+        "selling_price_baht_kg": selling_price_baht_kg,
+        "gross_revenue": gross_revenue,
+        "total_cost": total_cost,
+        "cost_per_rai": cost_per_rai,
+        "cost_per_kg": cost_per_kg,
+        "net_profit": net_profit,
+        "profit_margin_pct": profit_margin_pct,
+        "breakeven_price_kg": breakeven_price_kg,
+        "breakeven_yield_kg_rai": breakeven_yield_kg_rai,
+        "scenarios": scenarios
+    }
+
+
+def get_crop_calendar_guide(product: str) -> Dict[str, Any]:
+    """
+    Retrieve official crop calendar, seasonal guidelines, and pre-planting checklists
+    from the Rice Department / Department of Agriculture / Department of Agricultural Extension.
+    """
+    guides = {
+        "ข้าวนาปี": {
+            "crop_group": "พืชไร่ / ข้าว",
+            "planting_window": "พฤษภาคม – กรกฎาคม (ช่วงต้นถึงกลางฤดูฝน)",
+            "harvest_window": "ตุลาคม – ธันวาคม",
+            "growth_duration_days": "120 – 150 วัน (ขึ้นกับพันธุ์ไวแสงหรือไม่ไวแสง)",
+            "water_soil_req": "ดินเหนียวหรือดินร่วนปนเหนียว เก็บกักน้ำได้ดี ปริมาณน้ำฝนสะสมตลอดฤดู 1,200–1,500 มม. ค่า pH 5.5–6.5",
+            "pre_planting_checklist": [
+                "ตรวจสอบแหล่งน้ำและสภาพดิน (ไถดะตากดิน 7–10 วันเพื่อกำจัดวัชพืชและโรค)",
+                "คัดเลือกเมล็ดพันธุ์บริสุทธิ์จากศูนย์เมล็ดพันธุ์ข้าว (อัตรา 15–20 กก./ไร่ สำหรับหว่าน)",
+                "แช่เมล็ดพันธุ์ด้วยน้ำสะอาด 1 คืน ผึ่งให้งอกตุ่มตา 1 คืนก่อนหว่าน",
+                "ปรับระดับดินแปลงนาให้สม่ำเสมอเพื่อประสิทธิภาพการคุมระดับน้ำ",
+                "เตรียมปุ๋ยรองพื้นตามค่าวิเคราะห์ดิน (สูตร 16-20-0 หรือ 16-16-8)"
+            ],
+            "key_cautions": "เฝ้าระวังช่วงฝนทิ้งช่วงในเดือนมิถุนายน–กรกฎาคม และโรคไหม้ข้าว เพลี้ยกระโดดสีน้ำตาลในช่วงที่มีความชื้นสูง",
+            "source_agency": "กรมการข้าว กระทรวงเกษตรและสหกรณ์"
+        },
+        "ข้าวนาปรัง": {
+            "crop_group": "พืชไร่ / ข้าว",
+            "planting_window": "พฤศจิกายน – มกราคม (หลังเก็บเกี่ยวข้าวนาปี)",
+            "harvest_window": "กุมภาพันธ์ – เมษายน",
+            "growth_duration_days": "100 – 120 วัน (พันธุ์ไม่ไวต่อช่วงแสง เช่น กข41, กข47, พิษณุโลก 2)",
+            "water_soil_req": "ต้องอยู่ในเขตชลประทานหรือมีแหล่งน้ำสำรองเพียงพอตลอดฤดูปลูก ใช้น้ำเฉลี่ย 1,000–1,200 ลบ.ม./ไร่",
+            "pre_planting_checklist": [
+                "ตรวจสอบปริมาณน้ำในอ่างเก็บน้ำหรือคลองส่งน้ำชลประทานก่อนตัดสินใจปลูก",
+                "ใช้พันธุ์ข้าวไม่ไวต่อช่วงแสงที่มีอายุสั้นและทนต่อสภาพอากาศเย็นช่วงแรก",
+                "ไถดะและไถแปรปรับเทือกให้ราบเรียบเพื่อประหยัดน้ำชลประทาน",
+                "วางแผนการให้น้ำแบบเปียกสลับแห้งแกล้งข้าวเพื่อลดต้นทุนค่าน้ำมันและลดการเกิดก๊าซมีเทน"
+            ],
+            "key_cautions": "ห้ามปลูกนอกเขตชลประทานที่ไม่มีแหล่งน้ำยืนยัน ระวังอุณหภูมิต่ำกระทบต่อการงอกในภาคเหนือ/อีสาน",
+            "source_agency": "กรมการข้าว และกรมชลประทาน"
+        },
+        "ข้าวโพดเลี้ยงสัตว์": {
+            "crop_group": "พืชไร่ / ข้าวโพด",
+            "planting_window": "รุ่นที่ 1: พฤษภาคม – มิถุนายน (ฤดูฝน) | รุ่นที่ 2: พฤศจิกายน – ธันวาคม (หลังนา)",
+            "harvest_window": "สิงหาคม – กันยายน (รุ่น 1) | กุมภาพันธ์ – มีนาคม (รุ่น 2)",
+            "growth_duration_days": "105 – 120 วัน",
+            "water_soil_req": "ดินร่วน ดินร่วนเหนียว ระบายน้ำดี ไม่ชอบน้ำขังขังแฉะ ต้องการฝน 500–800 มม. ค่า pH 5.5–7.0",
+            "pre_planting_checklist": [
+                "ยกร่องแปลงปลูกเพื่อป้องกันน้ำขังโคนต้นและรากเน่า",
+                "ใช้เมล็ดพันธุ์ลูกผสมเดี่ยวที่ทนทานต่อโรคราน้ำค้างและหนอนเจาะสมอฝ้าย",
+                "คลุกเมล็ดพันธุ์ด้วยสารป้องกันกำจัดเชื้อราและแมลงก่อนหยอด",
+                "ตรวจวัดความชื้นในดินก่อนหยอดเมล็ดให้ลึก 3–5 ซม."
+            ],
+            "key_cautions": "ระวังหนอนกระทู้ข้าวโพดลายจุด (Fall Armyworm) ทำลายยอด และไม่ควรปลูกในพื้นที่ลุ่มน้ำท่วมขัง",
+            "source_agency": "กรมวิชาการเกษตร และกรมส่งเสริมการเกษตร"
+        },
+        "อ้อยโรงงาน": {
+            "crop_group": "พืชไร่ / อ้อย",
+            "planting_window": "อ้อยต้นฝน: เมษายน – พฤษภาคม | อ้อยปลายฝน: ตุลาคม – ธันวาคม",
+            "harvest_window": "ธันวาคม – เมษายน (ตามฤดูเปิดหีบของโรงงานน้ำตาล)",
+            "growth_duration_days": "10 – 14 เดือน (300 – 420 วัน)",
+            "water_soil_req": "ดินร่วน ดินร่วนปนทราย หรือดินร่วนเหนียว ระบายน้ำดี ไม่ชอบน้ำขัง ต้องการน้ำ 1,200–1,500 มม./ปี ค่า pH 5.5–7.0",
+            "pre_planting_checklist": [
+                "ไถดะ ไถแปร และไถระเบิดดินดานลึก 40–50 ซม. เพื่อให้รากอ้อยหยั่งลึกทนแล้ง",
+                "คัดเลือกท่อนพันธุ์อ้อยอายุ 8–10 เดือน มีตาสมบูรณ์ ปราศจากโรคขาวใบและหนอนกอ",
+                "แช่ท่อนพันธุ์ในสารป้องกันกำจัดเชื้อราและแมลงก่อนปลูก",
+                "ยกร่องลึก 25–30 ซม. ระยะระหว่างร่อง 1.3–1.5 เมตร เพื่อรองรับรถตัดอ้อย",
+                "ใส่ปุ๋ยรองพื้นสูตร 16-16-8 หรือ 15-15-15 อัตรา 30–50 กก./ไร่"
+            ],
+            "key_cautions": "ระวังหนอนกออ้อยระบาดช่วงแล้ง และงดการเผาอ้อยก่อนเก็บเกี่ยวเพื่อรักษาคุณภาพดินและลดฝุ่น PM2.5",
+            "source_agency": "สำนักงานคณะกรรมการอ้อยและน้ำตาลทราย และกรมวิชาการเกษตร"
+        },
+        "มันสำปะหลังโรงงาน": {
+            "crop_group": "พืชไร่ / มันสำปะหลัง",
+            "planting_window": "ต้นฝน: เมษายน – พฤษภาคม | ปลายฝน: ตุลาคม – พฤศจิกายน",
+            "harvest_window": "8 – 12 เดือนหลังปลูก (มกราคม – เมษายน)",
+            "growth_duration_days": "240 – 360 วัน",
+            "water_soil_req": "ดินร่วนปนทรายหรือดินร่วนลูกรัง ระบายน้ำดี ทนแล้งสูง ต้องการปริมาณฝน 800–1,200 มม. ค่า pH 5.0–6.5",
+            "pre_planting_checklist": [
+                "คัดเลือกท่อนพันธุ์สมบูรณ์ อายุ 8–12 เดือน ปราศจากโรคใบด่างมันสำปะหลัง",
+                "แช่ท่อนพันธุ์ด้วยสารป้องกันกำจัดแมลงหวี่ขาวยาสูบและเพลี้ยแป้ง 5–10 นาที",
+                "ยกร่องสูง 30–40 ซม. เพื่อเพิ่มความโปร่งของดินให้หัวขยายตัวได้ดี",
+                "ปักท่อนพันธุ์ในแนวดิ่งหรือเอียงเล็กน้อย ลึก 5–10 ซม."
+            ],
+            "key_cautions": "ตรวจแปลงสม่ำเสมอเพื่อเฝ้าระวังโรคใบด่างมันสำปะหลัง (Cassava Mosaic Disease) ที่ถ่ายทอดทางแมลงหวี่ขาว",
+            "source_agency": "กรมวิชาการเกษตร"
+        },
+        "มันสำปะหลัง": {
+            "crop_group": "พืชไร่ / มันสำปะหลัง",
+            "planting_window": "ต้นฝน: เมษายน – พฤษภาคม | ปลายฝน: ตุลาคม – พฤศจิกายน",
+            "harvest_window": "8 – 12 เดือนหลังปลูก (มกราคม – เมษายน)",
+            "growth_duration_days": "240 – 360 วัน",
+            "water_soil_req": "ดินร่วนปนทรายหรือดินร่วนลูกรัง ระบายน้ำดี ทนแล้งสูง ต้องการปริมาณฝน 800–1,200 มม. ค่า pH 5.0–6.5",
+            "pre_planting_checklist": [
+                "คัดเลือกท่อนพันธุ์สมบูรณ์ อายุ 8–12 เดือน ปราศจากโรคใบด่างมันสำปะหลัง",
+                "แช่ท่อนพันธุ์ด้วยสารป้องกันกำจัดแมลงหวี่ขาวยาสูบและเพลี้ยแป้ง 5–10 นาที",
+                "ยกร่องสูง 30–40 ซม. เพื่อเพิ่มความโปร่งของดินให้หัวขยายตัวได้ดี",
+                "ปักท่อนพันธุ์ในแนวดิ่งหรือเอียงเล็กน้อย ลึก 5–10 ซม."
+            ],
+            "key_cautions": "ตรวจแปลงสม่ำเสมอเพื่อเฝ้าระวังโรคใบด่างมันสำปะหลัง (Cassava Mosaic Disease) ที่ถ่ายทอดทางแมลงหวี่ขาว",
+            "source_agency": "กรมวิชาการเกษตร"
+        },
+        "อ้อย": {
+            "crop_group": "พืชไร่ / อ้อย",
+            "planting_window": "อ้อยต้นฝน: เมษายน – พฤษภาคม | อ้อยปลายฝน: ตุลาคม – ธันวาคม",
+            "harvest_window": "ธันวาคม – เมษายน (ตามฤดูเปิดหีบของโรงงานน้ำตาล)",
+            "growth_duration_days": "10 – 14 เดือน (300 – 420 วัน)",
+            "water_soil_req": "ดินร่วน ดินร่วนปนทราย หรือดินร่วนเหนียว ระบายน้ำดี ไม่ชอบน้ำขัง ต้องการน้ำ 1,200–1,500 มม./ปี ค่า pH 5.5–7.0",
+            "pre_planting_checklist": [
+                "ไถดะ ไถแปร และไถระเบิดดินดานลึก 40–50 ซม. เพื่อให้รากอ้อยหยั่งลึกทนแล้ง",
+                "คัดเลือกท่อนพันธุ์อ้อยอายุ 8–10 เดือน มีตาสมบูรณ์ ปราศจากโรคขาวใบและหนอนกอ",
+                "แช่ท่อนพันธุ์ในสารป้องกันกำจัดเชื้อราและแมลงก่อนปลูก",
+                "ยกร่องลึก 25–30 ซม. ระยะระหว่างร่อง 1.3–1.5 เมตร เพื่อรองรับรถตัดอ้อย",
+                "ใส่ปุ๋ยรองพื้นสูตร 16-16-8 หรือ 15-15-15 อัตรา 30–50 กก./ไร่"
+            ],
+            "key_cautions": "ระวังหนอนกออ้อยระบาดช่วงแล้ง และงดการเผาอ้อยก่อนเก็บเกี่ยวเพื่อรักษาคุณภาพดินและลดฝุ่น PM2.5",
+            "source_agency": "สำนักงานคณะกรรมการอ้อยและน้ำตาลทราย และกรมวิชาการเกษตร"
+        },
+        "ยางพารา": {
+            "crop_group": "ไม้ยืนต้น",
+            "planting_window": "พฤษภาคม – กรกฎาคม (ช่วงฤดูฝนชุก ดินมีความชื้นต่อเนื่อง)",
+            "harvest_window": "เริ่มเปิดกรีดเมื่ออายุ 7 ปี (เส้นรอบวงต้น 50 ซม.) กรีดได้ตลอดปียกเว้นช่วงผลัดใบ",
+            "growth_duration_days": "ไม้ยืนต้นอายุ 25–30 ปี",
+            "water_soil_req": "ดินลึกไม่น้อยกว่า 1 เมตร ระบายน้ำดี ไม่มีชั้นหินตื้น ปริมาณฝน 1,500–2,000 มม./ปี",
+            "pre_planting_checklist": [
+                "ขุดหลุมขนาด 50x50x50 ซม. รองก้นหลุมด้วยปุ๋ยร็อคฟอสเฟต",
+                "เลือกต้นพันธุ์ชำถุงสมบูรณ์ ยอดแก่ใบแก่",
+                "ปลูกพืชคลุมดินตระกูลถั่วเพื่อรักษาความชื้นและเพิ่มไนโตรเจน",
+                "ทำแนวกันไฟรอบสวนในช่วงฤดูแล้ง"
+            ],
+            "key_cautions": "ระวังโรคใบร่วงชนิดใหม่ในยางพารา และหลีกเลี่ยงการเปิดกรีดในวันที่ฝนตกเพื่อป้องกันเชื้อรารากและเปลือกเน่า",
+            "source_agency": "การยางแห่งประเทศไทย (กยท.)"
+        },
+        "ปาล์มน้ำมัน": {
+            "crop_group": "ไม้ยืนต้น",
+            "planting_window": "พฤษภาคม – สิงหาคม",
+            "harvest_window": "เริ่มเก็บเกี่ยวได้เมื่ออายุ 2.5–3 ปี เก็บผลสุกทุก 15–20 วันตลอดปี",
+            "growth_duration_days": "ไม้ยืนต้นอายุ 20–25 ปี",
+            "water_soil_req": "ต้องการน้ำสม่ำเสมอ 1,800–2,500 มม./ปี ฝนตกสม่ำเสมอ แสงแดดจัดอย่างน้อย 5 ชม./วัน",
+            "pre_planting_checklist": [
+                "เลือกพันธุ์ปาล์มน้ำมันเทเนอรา (Tenera) ที่ได้รับการรับรองจากกรมวิชาการเกษตร",
+                "วางระยะปลูกสามเหลี่ยมด้านเท่า 9x9x9 เมตร (22 ต้น/ไร่)",
+                "รองก้นหลุมด้วยปุ๋ยฟอสเฟตและโดโลไมท์ปรับสภาพกรดของดิน",
+                "จัดการระบบระบายน้ำในสวนปาล์มน้ำมันไม่ให้น้ำท่วมขังเกิน 7 วัน"
+            ],
+            "key_cautions": "ขาดน้ำนานเกิน 2 เดือนจะทำให้ทะลายฝ่อ ดอกตัวเมียลดลงอย่างมีนัยสำคัญ",
+            "source_agency": "กรมวิชาการเกษตร"
+        },
+        "ทุเรียน": {
+            "crop_group": "ไม้ผลยืนต้น",
+            "planting_window": "ต้นฤดูฝน: พฤษภาคม – มิถุนายน",
+            "harvest_window": "เมษายน – กรกฎาคม (ขึ้นกับพื้นที่ ภาคตะวันออก / ภาคใต้)",
+            "growth_duration_days": "เริ่มให้ผลผลิตเมื่ออายุ 4–5 ปี",
+            "water_soil_req": "ดินร่วนซุย ระบายน้ำดีเยี่ยม ไม่ทนน้ำท่วมขัง ค่า pH 5.5–6.5 ต้องมีระบบน้ำสปริงเกลอร์ประจำต้น",
+            "pre_planting_checklist": [
+                "ยกร่องหรือพูนโคกสูง 50–80 ซม. เพื่อป้องกันโรครากเน่าโคนเน่า",
+                "ติดตั้งระบบน้ำมินิสปริงเกลอร์ให้พร้อมก่อนลงปลูก",
+                "ทำร่มเงาพรางแสงแดดให้ต้นกล้าในช่วง 1–2 ปีแรก",
+                "พ่นสารชีวภัณฑ์ไตรโคเดอร์มาป้องกันเชื้อรา Phytophthora ตั้งแต่เริ่มปลูก"
+            ],
+            "key_cautions": "ไวต่อโรคไฟทอปโทรา (รากเน่าโคนเน่า) และห้ามให้น้ำขังโคนต้นเด็ดขาด",
+            "source_agency": "กรมส่งเสริมการเกษตร"
+        }
+    }
+
+    # Default fallback for crops not explicitly specialized
+    default_guide = {
+        "crop_group": "พืชผลการเกษตร",
+        "planting_window": "ต้นฤดูฝน (พฤษภาคม – มิถุนายน) หรือตามระบบน้ำชลประทาน",
+        "harvest_window": "ตามรอบอายุการเก็บเกี่ยวของชนิดพืช",
+        "growth_duration_days": "ขึ้นอยู่กับสายพันธุ์และฤดูกาล",
+        "water_soil_req": "ดินร่วนระบายน้ำดี ค่า pH 5.5–6.5 และมีแหล่งน้ำสนับสนุนเพียงพอ",
+        "pre_planting_checklist": [
+            "ตรวจวิเคราะห์ความเป็นกรด-ด่างและธาตุอาหารในดินก่อนเพาะปลูก",
+            "จัดเตรียมแหล่งน้ำสำรองและวางระบบให้น้ำที่เหมาะสม",
+            "คัดเลือกสายพันธุ์ที่มีคุณภาพและผ่านการรับรองมาตรฐานจากทางราชการ",
+            "เตรียมดิน ไถพรวนตากดิน 7–14 วันเพื่อลดการสะสมของโรคและแมลงศัตรูพืช",
+            "ติดต่อสำนักงานเกษตรอำเภอหรือหมอดินอาสาในพื้นที่เพื่อขอคำแนะนำเฉพาะทาง"
+        ],
+        "key_cautions": "ติดตามการแจ้งเตือนสภาพอากาศและปริมาณน้ำฝนจากกรมอุตุนิยมวิทยาและ สสน. อย่างสม่ำเสมอ",
+        "source_agency": "กรมส่งเสริมการเกษตร กระทรวงเกษตรและสหกรณ์"
+    }
+
+    if product in guides:
+        return guides[product]
+    for k, g in guides.items():
+        if k in product or product in k:
+            return g
+    return default_guide
+
 
 
 def join_climate_agriculture_nationwide(
@@ -125,8 +363,8 @@ def generate_climate_interpretation(
     crop_name: str,
     climate_var_name: str,
     ag_var_name: str,
-    geo_scope: str = "จังหวัดสุพรรณบุรี",
-    year_range: str = "2550-2562"
+    geo_scope: str = "77 จังหวัดทั่วประเทศไทย",
+    year_range: str = "2561–2562"
 ) -> str:
     """
     Generate an academic, data-driven interpretation of the climate-agriculture relationship.
