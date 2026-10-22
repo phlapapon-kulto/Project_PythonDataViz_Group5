@@ -127,7 +127,7 @@ Project_PythonDataViz_Group5/
 │   ├── visualizations.py      # โมดูลสร้างกราฟ Plotly, แผนที่ Choropleth, Price Trend, Scenarios
 │   └── filters.py             # โมดูลควบคุม Session State และตัวกรอง
 └── tests/
-    └── test_pipeline.py       # ชุดการทดสอบ Unit Tests อัตโนมัติ (31 การทดสอบ ครอบคลุม 100%)
+    └── test_pipeline.py       # ชุดการทดสอบ Unit Tests อัตโนมัติ (34 การทดสอบ ครอบคลุม 100%)
 ```
 
 ---
@@ -148,7 +148,7 @@ pip install -r requirements.txt
 ```bash
 python -m pytest tests/test_pipeline.py -v
 ```
-*(ผลการทดสอบจริง: ผ่านครบทุกการทดสอบ 31/31 tests passed ในเวลา ~4-5 วินาที)*
+*(ผลการทดสอบจริง: ผ่านครบทุกการทดสอบ 34/34 tests passed ในเวลา ~4-5 วินาที)*
 
 ### ขั้นตอนที่ 4: เปิดใช้งานแดชบอร์ด
 รันคำสั่ง:

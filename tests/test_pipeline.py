@@ -437,3 +437,31 @@ class TestEnhancedFeatures:
         assert res["breakeven_price_kg"] == 4.0
         assert pytest.approx(res["breakeven_yield_kg_rai"], 0.01) == 266.67
 
+
+    def test_src_package_structure(self):
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        assert os.path.exists(os.path.join(root, "src", "__init__.py")), "src/__init__.py must exist for Streamlit Cloud"
+
+    def test_data_loader_all_symbols(self):
+        from src.data_loader import (
+            load_agriculture_data,
+            load_spatial_rain_data,
+            load_national_rain_data,
+            load_provincial_temp_data,
+            load_oae_farmgate_prices,
+            load_tmd_daily_agromet,
+            load_thailand_geojson,
+            query_gistda_check_crop
+        )
+        assert callable(load_agriculture_data)
+        assert callable(query_gistda_check_crop)
+
+    def test_streamlit_cloud_import_resilience(self):
+        import importlib
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        src_dir = os.path.join(root, "src")
+        # Ensure root and src are present on sys.path
+        assert root in sys.path or any(os.path.samefile(p, root) for p in sys.path if os.path.exists(p))
+        mod = importlib.import_module("src.data_loader")
+        assert hasattr(mod, "load_agriculture_data")
+        assert hasattr(mod, "query_gistda_check_crop")

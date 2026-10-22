@@ -9,69 +9,156 @@ Strictly relies on verified government Open Data sources (OAE, TMD, HII).
 Zero mock data. Double-counting prevented 100%.
 """
 
+import sys
+import os
+from pathlib import Path
+from typing import Dict, Any, Optional
+import json
+
+# Ensure repository root and src/ directory are at the head of sys.path.
+# This prevents Streamlit Community Cloud ImportError / ModuleNotFoundError
+# where /mount/src namespace collides with the local src package on Linux.
+ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+SRC_DIR = ROOT_DIR / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(1, str(SRC_DIR))
+
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
-import json
-from typing import Dict, Any, Optional
 
-from src.data_loader import (
-    load_agriculture_data,
-    load_spatial_rain_data,
-    load_national_rain_data,
-    load_provincial_temp_data,
-    load_oae_farmgate_prices,
-    load_tmd_daily_agromet,
-    load_thailand_geojson,
-    query_gistda_check_crop
-)
-from src.data_cleaning import (
-    clean_agriculture_data,
-    clean_spatial_rain_data,
-    clean_national_rain_data,
-    clean_provincial_temp_data,
-    clean_oae_farmgate_prices,
-    clean_tmd_daily_agromet,
-    OFFICIAL_77_PROVINCES,
-    COUNTRY_NAME,
-    REGION_NAMES
-)
-from src.feature_engineering import (
-    calculate_weighted_yield,
-    calculate_aggregated_harvest_ratio,
-    calculate_unharvested_area,
-    aggregate_agricultural_kpis,
-    compute_yoy_dataframe,
-    compute_cv_summary
-)
-from src.analytics import (
-    join_climate_agriculture_nationwide,
-    calculate_bivariate_stats,
-    generate_climate_interpretation,
-    classify_area_yield_quadrants,
-    get_top_provinces,
-    get_top_crops,
-    calculate_farm_budget,
-    get_crop_calendar_guide
-)
-from src.visualizations import (
-    create_thailand_map,
-    create_ranking_bar_chart,
-    create_trend_line_chart,
-    create_bivariate_scatter_chart,
-    create_correlation_heatmap,
-    create_quadrant_scatter_chart,
-    create_yoy_bar_chart,
-    create_price_trend_chart,
-    create_cost_breakdown_pie,
-    create_scenario_bar_chart,
-    COLOR_FOREST_DARK,
-    COLOR_FOREST_MED,
-    COLOR_WARNING,
-    COLOR_DANGER
-)
-from src.filters import init_session_state, reset_filters, apply_ag_filters
+# Robust import pattern supporting both package and flat search paths
+try:
+    from src.data_loader import (
+        load_agriculture_data,
+        load_spatial_rain_data,
+        load_national_rain_data,
+        load_provincial_temp_data,
+        load_oae_farmgate_prices,
+        load_tmd_daily_agromet,
+        load_thailand_geojson,
+        query_gistda_check_crop
+    )
+except ImportError:
+    from data_loader import (
+        load_agriculture_data,
+        load_spatial_rain_data,
+        load_national_rain_data,
+        load_provincial_temp_data,
+        load_oae_farmgate_prices,
+        load_tmd_daily_agromet,
+        load_thailand_geojson,
+        query_gistda_check_crop
+    )
+
+try:
+    from src.data_cleaning import (
+        clean_agriculture_data,
+        clean_spatial_rain_data,
+        clean_national_rain_data,
+        clean_provincial_temp_data,
+        clean_oae_farmgate_prices,
+        clean_tmd_daily_agromet,
+        OFFICIAL_77_PROVINCES,
+        COUNTRY_NAME,
+        REGION_NAMES
+    )
+except ImportError:
+    from data_cleaning import (
+        clean_agriculture_data,
+        clean_spatial_rain_data,
+        clean_national_rain_data,
+        clean_provincial_temp_data,
+        clean_oae_farmgate_prices,
+        clean_tmd_daily_agromet,
+        OFFICIAL_77_PROVINCES,
+        COUNTRY_NAME,
+        REGION_NAMES
+    )
+
+try:
+    from src.feature_engineering import (
+        calculate_weighted_yield,
+        calculate_aggregated_harvest_ratio,
+        calculate_unharvested_area,
+        aggregate_agricultural_kpis,
+        compute_yoy_dataframe,
+        compute_cv_summary
+    )
+except ImportError:
+    from feature_engineering import (
+        calculate_weighted_yield,
+        calculate_aggregated_harvest_ratio,
+        calculate_unharvested_area,
+        aggregate_agricultural_kpis,
+        compute_yoy_dataframe,
+        compute_cv_summary
+    )
+
+try:
+    from src.analytics import (
+        join_climate_agriculture_nationwide,
+        calculate_bivariate_stats,
+        generate_climate_interpretation,
+        classify_area_yield_quadrants,
+        get_top_provinces,
+        get_top_crops,
+        calculate_farm_budget,
+        get_crop_calendar_guide
+    )
+except ImportError:
+    from analytics import (
+        join_climate_agriculture_nationwide,
+        calculate_bivariate_stats,
+        generate_climate_interpretation,
+        classify_area_yield_quadrants,
+        get_top_provinces,
+        get_top_crops,
+        calculate_farm_budget,
+        get_crop_calendar_guide
+    )
+
+try:
+    from src.visualizations import (
+        create_thailand_map,
+        create_ranking_bar_chart,
+        create_trend_line_chart,
+        create_bivariate_scatter_chart,
+        create_correlation_heatmap,
+        create_quadrant_scatter_chart,
+        create_yoy_bar_chart,
+        create_price_trend_chart,
+        create_cost_breakdown_pie,
+        create_scenario_bar_chart,
+        COLOR_FOREST_DARK,
+        COLOR_FOREST_MED,
+        COLOR_WARNING,
+        COLOR_DANGER
+    )
+except ImportError:
+    from visualizations import (
+        create_thailand_map,
+        create_ranking_bar_chart,
+        create_trend_line_chart,
+        create_bivariate_scatter_chart,
+        create_correlation_heatmap,
+        create_quadrant_scatter_chart,
+        create_yoy_bar_chart,
+        create_price_trend_chart,
+        create_cost_breakdown_pie,
+        create_scenario_bar_chart,
+        COLOR_FOREST_DARK,
+        COLOR_FOREST_MED,
+        COLOR_WARNING,
+        COLOR_DANGER
+    )
+
+try:
+    from src.filters import init_session_state, reset_filters, apply_ag_filters
+except ImportError:
+    from filters import init_session_state, reset_filters, apply_ag_filters
 
 # ---------------------------------------------------------
 # Page Configuration & Styling

@@ -21,7 +21,7 @@
    - **TAB 4: ผู้ช่วยวางแผนเพาะปลูก (Crop Planning Assistant)**
    - **TAB 5: ตลาดและเครื่องคำนวณฟาร์ม (Market & Farm Calculator)**
 4. **ความน่าเชื่อถือและการทดสอบ:**
-   - ชุดทดสอบ Unit Tests อัตโนมัติ 31 การทดสอบ ครอบคลุม 100% (ผ่านครบ 31/31)
+   - ชุดทดสอบ Unit Tests อัตโนมัติ 34 การทดสอบ ครอบคลุม 100% (ผ่านครบ 34/34)
    - ผ่านการทดสอบรันแอปพลิเคชัน Streamlit แบบ Headless AppTest โดยไม่มีข้อผิดพลาด
 
 ---
@@ -128,9 +128,12 @@ tests/test_pipeline.py::TestEnhancedFeatures::test_bottom_provinces_ranking PASS
 tests/test_pipeline.py::TestEnhancedFeatures::test_gistda_check_crop_validation PASSED [ 90%]
 tests/test_pipeline.py::TestEnhancedFeatures::test_create_ranking_bar_chart_bottom PASSED [ 93%]
 tests/test_pipeline.py::TestEnhancedFeatures::test_create_bivariate_scatter_chart_uncluttered PASSED [ 96%]
-tests/test_pipeline.py::TestEnhancedFeatures::test_farm_budget_detailed_formulas PASSED [100%]
+tests/test_pipeline.py::TestEnhancedFeatures::test_farm_budget_detailed_formulas PASSED [ 91%]
+tests/test_pipeline.py::TestEnhancedFeatures::test_src_package_structure PASSED [ 94%]
+tests/test_pipeline.py::TestEnhancedFeatures::test_data_loader_all_symbols PASSED [ 97%]
+tests/test_pipeline.py::TestEnhancedFeatures::test_streamlit_cloud_import_resilience PASSED [100%]
 
-============================= 31 passed in 5.42s ==============================
+============================= 34 passed in 4.05s ==============================
 ```
 
 ---
