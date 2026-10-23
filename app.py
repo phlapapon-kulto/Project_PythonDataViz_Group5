@@ -449,7 +449,7 @@ col_search, col_reset = st.columns([3.2, 0.8])
 with col_search:
     search_query = st.text_input(
         "🔍 ค้นหาด่วน (พิมพ์ชื่อจังหวัด หรือ ชนิดพืช เพื่อเลือกตัวกรองทันที):",
-        placeholder="เช่น เชียงใหม่, ขอนแก่น, สุพรรณบุรี, ข้าวนาปี, ทุเรียน, ยางพารา...",
+        placeholder="เช่น เชียงใหม่, ขอนแก่น, ระยอง, ชลบุรี, ข้าวนาปี, ทุเรียน, ยางพารา...",
         key="global_search_input"
     )
     if search_query:
@@ -457,12 +457,17 @@ with col_search:
         matched_prov = [p for p in OFFICIAL_77_PROVINCES if query_strip in p]
         matched_crops = [c for c in all_products if c != "ทั้งหมด" and query_strip in c]
         if matched_prov and not matched_crops:
-            if st.session_state.selected_province != matched_prov[0]:
-                st.session_state.selected_province = matched_prov[0]
-                st.session_state.selected_region = PROVINCE_TO_REGION.get(matched_prov[0], "ทั้งหมด")
+            target_prov = matched_prov[0]
+            if st.session_state.selected_province != target_prov:
+                st.session_state.selected_province = target_prov
+                st.session_state.prov_select_key = target_prov
+                reg = PROVINCE_TO_REGION.get(target_prov, "ทั้งหมด")
+                st.session_state.selected_region = reg
+                st.session_state.reg_select_key = reg
         elif matched_crops and not matched_prov:
             if st.session_state.selected_product != matched_crops[0]:
                 st.session_state.selected_product = matched_crops[0]
+                st.session_state.prod_select_key = matched_crops[0]
 
 with col_reset:
     st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
@@ -474,7 +479,7 @@ with col_reset:
 col_f1, col_f2, col_f3, col_f4 = st.columns([1.1, 1.2, 1.0, 1.3])
 
 with col_f1:
-    region_options = ["ทั้งหมด", "ภาคเหนือ", "ภาคตะวันออกเฉียงเหนือ", "ภาคกลาง", "ภาคใต้"]
+    region_options = ["ทั้งหมด", "ภาคเหนือ", "ภาคตะวันออกเฉียงเหนือ", "ภาคกลาง", "ภาคตะวันออก", "ภาคใต้"]
     curr_reg_idx = region_options.index(st.session_state.selected_region) if st.session_state.selected_region in region_options else 0
     def on_region_change():
         st.session_state.selected_region = st.session_state.reg_select_key
@@ -482,6 +487,8 @@ with col_f1:
             valid_provs = REGION_TO_PROVINCES.get(st.session_state.selected_region, [])
             if st.session_state.selected_province not in valid_provs:
                 st.session_state.selected_province = "ทั้งหมด"
+                if "prov_select_key" in st.session_state:
+                    st.session_state.prov_select_key = "ทั้งหมด"
 
     selected_region = st.selectbox(
         "🌍 1. ภูมิภาค (Region)",
@@ -498,22 +505,36 @@ with col_f2:
     else:
         prov_options = ["ทั้งหมด"] + sorted(OFFICIAL_77_PROVINCES)
 
+    def on_province_change():
+        p = st.session_state.prov_select_key
+        st.session_state.selected_province = p
+        if p != "ทั้งหมด":
+            prov_reg = PROVINCE_TO_REGION.get(p)
+            if prov_reg and st.session_state.selected_region != "ทั้งหมด" and st.session_state.selected_region != prov_reg:
+                st.session_state.selected_region = prov_reg
+                st.session_state.reg_select_key = prov_reg
+
     curr_prov_idx = prov_options.index(st.session_state.selected_province) if st.session_state.selected_province in prov_options else 0
     selected_province = st.selectbox(
         "📍 2. จังหวัด (Province)",
         options=prov_options,
         index=curr_prov_idx,
-        key="prov_select_key"
+        key="prov_select_key",
+        on_change=on_province_change
     )
     st.session_state.selected_province = selected_province
 
 with col_f3:
-    st.selectbox(
+    granularity_options = [
+        "ระดับจังหวัด (77 จังหวัด - สศก.)",
+        "ระดับอำเภอ (ไม่มีข้อมูลในชุดข้อมูล สศก.)"
+    ]
+    selected_granularity = st.selectbox(
         "🏘️ 3. ระดับพื้นที่ (Granularity)",
-        options=["ระดับจังหวัด (สศก. 77 จังหวัด)"],
+        options=granularity_options,
         index=0,
-        disabled=True,
-        help="ข้อมูลสถิติการผลิตทางการเกษตรของ สศก. เผยแพร่ในระดับรายจังหวัด (77 จังหวัด) จึงแสดงผลระดับจังหวัดตามความละเอียดจริงของชุดข้อมูลภาครัฐ"
+        key="granularity_select_key",
+        help="สถิติการผลิตสินค้าเกษตรย้อนหลังของ สศก. พ.ศ. 2550–2562 เผยแพร่ระดับจังหวัด (77 จังหวัด) จึงแสดงผลระดับจังหวัดตามความละเอียดจริงของชุดข้อมูลภาครัฐ"
     )
 
 with col_f4:
@@ -628,6 +649,9 @@ with tab1:
         f"ชนิดพืช: {st.session_state.selected_product} (แหล่งข้อมูล: สำนักงานเศรษฐกิจการเกษตร สศก.)"
     )
 
+    if st.session_state.get("granularity_select_key") == "ระดับอำเภอ (ไม่มีข้อมูลในชุดข้อมูล สศก.)":
+        st.info("ℹ️ **หมายเหตุระดับพื้นที่:** ชุดข้อมูลสถิติการผลิตสินค้าเกษตรย้อนหลัง พ.ศ. 2550–2562 ของ สศก. บันทึกข้อมูลละเอียดสูงสุดที่ระดับรายจังหวัด (77 จังหวัด) ไม่มีข้อมูลสถิติจำแนกระดับอำเภอในชุดข้อมูลเปิดทางการ จึงแสดงผลระดับจังหวัดตามข้อเท็จจริงของแหล่งข้อมูล")
+
     if df_active.empty:
         st.warning(
             f"⚠️ ไม่พบข้อมูลจริงสำหรับตัวกรองที่เลือก (ปี พ.ศ. {st.session_state.selected_year}, "
@@ -635,14 +659,31 @@ with tab1:
             f"จังหวัด: {st.session_state.selected_province}) กรุณาปรับเปลี่ยนตัวกรองด้านบน"
         )
     else:
+        # Comparison Year Selector (Requirement 1.3: Clearly separate analysis year from comparison year)
+        col_an_yr, col_cmp_yr = st.columns([2.5, 1.5])
+        with col_an_yr:
+            st.markdown(f"**ปีที่ใช้วิเคราะห์หลัก:** <span style='font-size: 16px; font-weight: 700; color: #1B4D3E;'>พ.ศ. {st.session_state.selected_year}</span>", unsafe_allow_html=True)
+        with col_cmp_yr:
+            default_prev_yr = st.session_state.selected_year - 1
+            comp_choices = [f"ปีก่อนหน้า (พ.ศ. {default_prev_yr})"] + [f"ปี พ.ศ. {y}" for y in sorted(available_years, reverse=True) if y != st.session_state.selected_year]
+            sel_comp_label = st.selectbox(
+                "⚖️ เลือกปีเปรียบเทียบ (Comparison Baseline):",
+                options=comp_choices,
+                index=0,
+                key="tab1_comp_year_select"
+            )
+            if "ปีก่อนหน้า" in sel_comp_label:
+                comp_year = default_prev_yr
+            else:
+                comp_year = int(sel_comp_label.replace("ปี พ.ศ. ", "").strip())
+
         # Calculate current year KPIs
         kpis = aggregate_agricultural_kpis(df_active)
 
-        # Calculate previous year KPIs for YoY comparison
-        prev_year = st.session_state.selected_year - 1
+        # Calculate comparison year KPIs for change comparison
         df_prev = apply_ag_filters(
             df_ag,
-            year=prev_year,
+            year=comp_year,
             region=st.session_state.selected_region,
             province=st.session_state.selected_province,
             product=st.session_state.selected_product,
@@ -650,13 +691,15 @@ with tab1:
         )
         kpis_prev = aggregate_agricultural_kpis(df_prev) if not df_prev.empty else None
 
-        # Compute YoY Deltas
+        # Compute Deltas vs comparison year
         def get_delta_badge(curr_val: float, prev_val: Optional[float], unit: str, is_yield: bool = False) -> str:
             if prev_val is None or pd.isna(prev_val) or prev_val <= 0 or pd.isna(curr_val):
-                return '<span class="delta-badge-neutral">ไม่มีข้อมูลปีก่อนหน้า</span>'
+                return f'<span class="delta-badge-neutral">ไม่มีข้อมูลปี {comp_year}</span>'
             diff = curr_val - prev_val
             pct = (diff / prev_val) * 100.0
             badge_class = "delta-badge-pos" if diff >= 0 else "delta-badge-neg"
+            formatted_diff = f"{diff:+.1f}" if is_yield else f"{diff:+,.0f}"
+            return f'<span class="{badge_class}">{pct:+.1f}% ({formatted_diff} {unit} เทียบปี {comp_year})</span>'
             formatted_diff = f"{diff:+.1f}" if is_yield else f"{diff:+,.0f}"
             return f'<span class="{badge_class}">{pct:+.1f}% ({formatted_diff} {unit} จากปี {prev_year})</span>'
 
@@ -1139,24 +1182,75 @@ with tab2:
 # =========================================================
 with tab3:
     st.markdown("### 💰 ตลาด สารสนเทศราคา และส่วนต่างกำไร (Market & Price Intelligence)")
-    st.caption("ข้อมูลราคาสินค้าเกษตรหน้าฟาร์มจริงจากสำนักงานเศรษฐกิจการเกษตร (สศก.) และ ศูนย์ข้อมูลเกษตรแห่งชาติ (NABC) พ.ศ. 2561–2562")
+    st.caption("ข้อมูลราคาสินค้าเกษตรหน้าฟาร์มจริงจากสำนักงานเศรษฐกิจการเกษตร (สศก.) และ ศูนย์ข้อมูลเกษตรแห่งชาติ (NABC) พ.ศ. 2561–2562 (ความถี่: รายสัปดาห์)")
 
-    # Determine crop for price tab
+    # Dynamic Crop Selection based on real data in df_prices (Requirement 2.1)
     price_crops = sorted(df_prices["product"].dropna().unique().tolist()) if not df_prices.empty else []
-    default_price_crop = st.session_state.selected_product if st.session_state.selected_product in price_crops else (price_crops[0] if price_crops else "ข้าวนาปี")
 
-    col_t3_crop, col_t3_year = st.columns([2, 1])
+    # Filter controls for Tab 3: Search box, Crop dropdown, and Year filter
+    col_t3_search, col_t3_crop, col_t3_year = st.columns([1.3, 1.7, 1.0])
+
+    with col_t3_search:
+        price_crop_search = st.text_input(
+            "🔍 ค้นหาชนิดพืชราคาตลาด:",
+            placeholder="เช่น ข้าว, ทุเรียน, ยาง, ปาล์ม, มันสำปะหลัง...",
+            key="tab3_price_search_box"
+        )
+
+    # Filter available price crops by search query if provided
+    if price_crop_search and price_crop_search.strip():
+        search_kw = price_crop_search.strip().lower()
+        active_price_crop_options = [c for c in price_crops if search_kw in c.lower()]
+        if not active_price_crop_options:
+            st.warning(f"⚠️ ไม่พบสินค้าที่มีคำว่า '{price_crop_search}' ในชุดข้อมูลราคา สศก.")
+            active_price_crop_options = price_crops
+    else:
+        active_price_crop_options = price_crops
+
+    # Default crop selection based on global product or first available
+    default_price_crop = "ข้าวเปลือกเจ้าหอมมะลิ"
+    if st.session_state.selected_product != "ทั้งหมด":
+        # Find matching crop in active options
+        candidates = [c for c in active_price_crop_options if st.session_state.selected_product in c or c in st.session_state.selected_product]
+        if candidates:
+            default_price_crop = candidates[0]
+        elif active_price_crop_options:
+            default_price_crop = active_price_crop_options[0]
+    elif active_price_crop_options:
+        default_price_crop = "ข้าวเปลือกเจ้าหอมมะลิ" if "ข้าวเปลือกเจ้าหอมมะลิ" in active_price_crop_options else active_price_crop_options[0]
+
     with col_t3_crop:
+        curr_p_idx = active_price_crop_options.index(default_price_crop) if default_price_crop in active_price_crop_options else 0
         selected_price_crop = st.selectbox(
-            "เลือกสินค้าเกษตรสำหรับวิเคราะห์ราคาตลาด:",
-            options=price_crops if price_crops else ["ข้าวนาปี"],
-            index=price_crops.index(default_price_crop) if default_price_crop in price_crops else 0,
+            "🌱 สินค้าเกษตรสำหรับวิเคราะห์ราคา:",
+            options=active_price_crop_options if active_price_crop_options else ["ไม่มีข้อมูล"],
+            index=curr_p_idx,
             key="tab3_price_crop_select"
         )
-    with col_t3_year:
-        st.selectbox("รอบปีข้อมูลราคา:", options=["พ.ศ. 2561–2562 (สศก. Open Data)"], disabled=True)
 
-    # 2-Column Responsive Layout: Left = Map | Right = Price Intelligence (Requirement B & C)
+    with col_t3_year:
+        price_year_options = ["ทั้งหมด (พ.ศ. 2561–2562)", "ปี พ.ศ. 2562", "ปี พ.ศ. 2561"]
+        selected_price_year_choice = st.selectbox(
+            "📅 รอบปีข้อมูลราคา (สศก.):",
+            options=price_year_options,
+            index=0,
+            key="tab3_price_year_select"
+        )
+        if "2562" in selected_price_year_choice and "ทั้งหมด" not in selected_price_year_choice:
+            filter_price_year = 2562
+        elif "2561" in selected_price_year_choice and "ทั้งหมด" not in selected_price_year_choice:
+            filter_price_year = 2561
+        else:
+            filter_price_year = None
+
+    # Filter prices DataFrame dynamically
+    df_prices_filtered = df_prices.copy()
+    if filter_price_year is not None and not df_prices_filtered.empty:
+        df_prices_filtered = df_prices_filtered[df_prices_filtered["year"] == filter_price_year]
+
+    price_sub = df_prices_filtered[df_prices_filtered["product"] == selected_price_crop].copy() if not df_prices_filtered.empty else pd.DataFrame()
+
+    # 2-Column Responsive Layout: Left = Map | Right = Price Intelligence
     col_t3_map, col_t3_dash = st.columns([1.05, 1.15])
 
     with col_t3_map:
@@ -1173,7 +1267,6 @@ with tab3:
         else:
             st.info("ไม่พบไฟล์แผนที่ GeoJSON")
 
-        # Mandatory Spatial Granularity Price Disclaimer (Requirement B.Tab3)
         st.markdown("""
         <div style="background-color: #FFFBEB; border-left: 4px solid #F59E0B; padding: 12px 14px; border-radius: 6px; font-size: 12px; color: #92400E; line-height: 1.5;">
             📌 <b>หมายเหตุความโปร่งใสด้านระดับพื้นที่ของข้อมูลราคา:</b><br>
@@ -1186,7 +1279,10 @@ with tab3:
     with col_t3_dash:
         st.markdown(f"#### 📊 สารสนเทศราคารายสัปดาห์: **{selected_price_crop}**")
 
-        price_metrics = compute_price_summary_metrics(df_prices, selected_price_crop)
+        if not price_sub.empty:
+            price_metrics = compute_price_summary_metrics(price_sub, selected_price_crop, unit_mode="native")
+        else:
+            price_metrics = {"has_data": False, "message": f"ไม่พบข้อมูลราคาสำหรับ '{selected_price_crop}' ในช่วงเวลาที่เลือก"}
 
         if price_metrics.get("has_data", False):
             # 4 Price KPI Cards
@@ -1203,9 +1299,9 @@ with tab3:
             with col_p2:
                 st.markdown(f"""
                 <div class="kpi-card" style="padding: 12px 14px;">
-                    <div class="kpi-label">ราคาเฉลี่ยรอบปี</div>
+                    <div class="kpi-label">ราคาเฉลี่ยรอบที่เลือก</div>
                     <div class="kpi-value">{price_metrics['mean_price']:,.2f}<span class="kpi-unit">{price_metrics['unit']}</span></div>
-                    <div class="kpi-sub"><span class="delta-badge-neutral">สศก. 2561-2562</span></div>
+                    <div class="kpi-sub"><span class="delta-badge-neutral">{selected_price_year_choice}</span></div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1224,46 +1320,52 @@ with tab3:
                 <div class="kpi-card" style="padding: 12px 14px;">
                     <div class="kpi-label">การเปลี่ยนแปลงรายสัปดาห์</div>
                     <div class="kpi-value" style="font-size: 19px;"><span class="{wow_badge}">{price_metrics['wow_change']:+.2f} ({price_metrics['wow_pct']:+.1f}%)</span></div>
-                    <div class="kpi-sub"><span class="delta-badge-neutral">เทียบสัปดาห์ก่อน</span></div>
+                    <div class="kpi-sub"><span class="delta-badge-neutral">เทียบสัปดาห์ก่อนหน้า</span></div>
                 </div>
                 """, unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
 
             # Weekly Price Trend Chart
-            fig_p_trend = create_price_trend_chart(df_prices, selected_price_crop)
+            fig_p_trend = create_price_trend_chart(price_sub, selected_price_crop, unit_mode="native")
             st.plotly_chart(fig_p_trend, use_container_width=True)
 
             # Cost vs Price Margin Comparison
             st.markdown("---")
             st.markdown("#### ⚖️ การเปรียบเทียบราคาขายเฉลี่ย vs ต้นทุนการผลิตต่อหน่วย")
-            margin_summary = compare_production_cost_and_price(df_cost, df_prices, crop=selected_price_crop, year=2562)
-            fig_margin = create_cost_price_margin_chart(margin_summary)
-            st.plotly_chart(fig_margin, use_container_width=True)
+            margin_summary = compare_production_cost_and_price(df_cost, price_sub, crop=selected_price_crop, year=2562)
+            if margin_summary.get("has_data", False):
+                fig_margin = create_cost_price_margin_chart(margin_summary)
+                st.plotly_chart(fig_margin, use_container_width=True)
+            else:
+                st.info(f"ℹ️ สศก. เผยแพร่โครงสร้างต้นทุนมาตรฐานเฉพาะพืชเศรษฐกิจหลัก 5 ชนิด (ข้าวนาปี, ข้าวนาปรัง, ข้าวโพดเลี้ยงสัตว์, มันสำปะหลัง, อ้อยโรงงาน) จึงไม่มีข้อมูลต้นทุนเปรียบเทียบสำหรับ '{selected_price_crop}'")
 
         else:
-            st.info(f"ไม่มีข้อมูลสถิติราคาสำหรับ {selected_price_crop} ในระบบ")
+            st.warning(f"⚠️ {price_metrics.get('message', 'ไม่มีข้อมูลราคาสำหรับสินค้าที่เลือก')}")
 
     # Searchable & Sortable Price Table with CSV Export
     st.markdown("---")
     st.markdown("### 📋 ตารางสถิติราคาหน้าฟาร์มรายสัปดาห์ (Searchable Price Table)")
-    if not df_prices.empty:
-        price_sub = df_prices[df_prices["product"] == selected_price_crop].copy() if selected_price_crop != "ทั้งหมด" else df_prices.copy()
+    if not price_sub.empty:
         price_display = price_sub.sort_values(by=["year", "month", "week"], ascending=False).reset_index(drop=True)
-
         col_pr_ren = {
             "product": "ชนิดสินค้าเกษตร",
             "year": "ปี พ.ศ.",
             "month": "เดือน",
             "week": "สัปดาห์ที่",
-            "price_baht_per_kg": "ราคาหน้าฟาร์ม (บาท/กก.)",
-            "price_baht_per_ton": "ราคาหน้าฟาร์ม (บาท/ตัน)"
+            "native_price": "ราคาหน้าฟาร์มจริง",
+            "native_unit": "หน่วยวัด",
+            "price_baht_per_kg": "ราคาเทียบเคียง (บาท/กก.)",
+            "frequency": "ความถี่",
+            "data_source": "แหล่งข้อมูล"
         }
         price_table = price_display.rename(columns={k: v for k, v in col_pr_ren.items() if k in price_display.columns})
+        available_p_cols = [v for k, v in col_pr_ren.items() if v in price_table.columns]
+        price_table = price_table[available_p_cols]
 
         col_pt1, col_pt2 = st.columns([3, 1])
         with col_pt1:
-            st.caption(f"แสดงข้อมูลราคารวมทั้งหมด {len(price_table):,} สัปดาห์ (สำนักงานเศรษฐกิจการเกษตร สศก.)")
+            st.caption(f"แสดงข้อมูลราคารวมทั้งหมด {len(price_table):,} สัปดาห์ (สำนักงานเศรษฐกิจการเกษตร สศก. & NABC)")
         with col_pt2:
             p_csv = price_table.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
             st.download_button(
@@ -1274,7 +1376,16 @@ with tab3:
                 use_container_width=True
             )
 
-        st.dataframe(price_table, use_container_width=True, height=280)
+        st.dataframe(
+            price_table.style.format({
+                "ราคาหน้าฟาร์มจริง": "{:,.2f}",
+                "ราคาเทียบเคียง (บาท/กก.)": "{:,.2f}"
+            }),
+            use_container_width=True,
+            height=280
+        )
+    else:
+        st.info("ไม่มีข้อมูลในตารางสำหรับสินค้าหรือรอบปีที่เลือก")
 
     # Price Outlook & Future Projection Disclaimer (Requirement B.Tab3)
     st.markdown("""

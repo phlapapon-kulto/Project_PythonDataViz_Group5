@@ -745,16 +745,65 @@ class TestRedesignedDashboard:
         assert len(tabs_list) == 4, f"Expected exactly 4 tabs, found {len(tabs_list)}: {tabs_list}"
 
     def test_province_to_region_coverage(self):
-        """Verify that all 77 official provinces are mapped in PROVINCE_TO_REGION."""
+        """Verify that all 77 official provinces are mapped in PROVINCE_TO_REGION across 5 regions."""
         from src.data_cleaning import OFFICIAL_77_PROVINCES, PROVINCE_TO_REGION, REGION_TO_PROVINCES
         assert len(PROVINCE_TO_REGION) == 77
+        allowed_regions = ["ภาคเหนือ", "ภาคตะวันออกเฉียงเหนือ", "ภาคกลาง", "ภาคตะวันออก", "ภาคใต้"]
         for p in OFFICIAL_77_PROVINCES:
             assert p in PROVINCE_TO_REGION, f"Province {p} is missing from PROVINCE_TO_REGION"
-            assert PROVINCE_TO_REGION[p] in ["ภาคเหนือ", "ภาคตะวันออกเฉียงเหนือ", "ภาคกลาง", "ภาคใต้"]
+            assert PROVINCE_TO_REGION[p] in allowed_regions, f"Province {p} mapped to unknown region {PROVINCE_TO_REGION[p]}"
         
         # Verify reverse mapping
         total_reverse = sum(len(provs) for provs in REGION_TO_PROVINCES.values())
         assert total_reverse == 77
+        assert len(REGION_TO_PROVINCES["ภาคตะวันออก"]) == 7
+
+    def test_eastern_region_filtering_and_provinces(self):
+        """Verify that Eastern region (ภาคตะวันออก) contains the 7 official provinces with real data."""
+        from src.data_loader import load_agriculture_data
+        from src.data_cleaning import clean_agriculture_data, REGION_TO_PROVINCES
+        from src.filters import apply_ag_filters
+
+        df_ag = clean_agriculture_data(load_agriculture_data())
+        df_east = apply_ag_filters(df_ag, year=2562, region="ภาคตะวันออก", geo_level="province")
+        assert not df_east.empty, "Eastern region data should not be empty"
+        east_provinces = set(REGION_TO_PROVINCES["ภาคตะวันออก"])
+        expected_east = {"ฉะเชิงเทรา", "ชลบุรี", "ระยอง", "จันทบุรี", "ตราด", "ปราจีนบุรี", "สระแก้ว"}
+        assert east_provinces == expected_east, f"Expected {expected_east}, got {east_provinces}"
+        for p in df_east["province"].unique():
+            assert p in east_provinces, f"Province {p} not expected in Eastern region"
+
+        # Verify historical presence (all 13 years 2550-2562)
+        east_all_years = df_ag[df_ag["region"] == "ภาคตะวันออก"]["year"].unique()
+        assert len(east_all_years) == 13, f"Expected 13 years for Eastern region, got {len(east_all_years)}"
+
+    def test_price_units_and_strict_no_surrogate(self):
+        """Verify that price dataset retains native units and compute_price_summary_metrics does not fabricate or substitute."""
+        from src.data_loader import load_oae_farmgate_prices
+        from src.data_cleaning import clean_oae_farmgate_prices
+        from src.analytics import compute_price_summary_metrics
+
+        df_prices = clean_oae_farmgate_prices(load_oae_farmgate_prices())
+        assert not df_prices.empty
+        assert "native_unit" in df_prices.columns
+        assert "frequency" in df_prices.columns
+
+        # Verify Hom Mali Rice is in Baht/ton
+        mali_sub = df_prices[df_prices["product"] == "ข้าวเปลือกเจ้าหอมมะลิ"]
+        assert not mali_sub.empty
+        assert mali_sub["native_unit"].iloc[0] == "บาท/ตัน"
+        assert mali_sub["native_price"].mean() > 10000.0
+
+        # Verify Durian is in Baht/kg
+        durian_sub = df_prices[df_prices["product"] == "ทุเรียนหมอนทอง"]
+        assert not durian_sub.empty
+        assert durian_sub["native_unit"].iloc[0] == "บาท/กก."
+        assert durian_sub["native_price"].mean() > 50.0
+
+        # Verify querying unknown crop returns has_data=False and does NOT substitute
+        res_unknown = compute_price_summary_metrics(df_prices, "พืชที่ไม่มีอยู่จริง12345")
+        assert res_unknown["has_data"] is False
+        assert "ไม่พบข้อมูลราคา" in res_unknown["message"]
 
     def test_region_filtering_in_apply_ag_filters(self):
         """Verify that region filtering correctly selects only provinces in that region."""

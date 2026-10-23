@@ -9,8 +9,8 @@ import pandas as pd
 import numpy as np
 from typing import Tuple, List, Dict, Optional, Union, Any
 
-# List of 4 main regional aggregate names in OAE data
-REGION_NAMES = ["ภาคเหนือ", "ภาคกลาง", "ภาคใต้", "ภาคตะวันออกเฉียงเหนือ"]
+# List of regional aggregate names
+REGION_NAMES = ["ภาคเหนือ", "ภาคกลาง", "ภาคใต้", "ภาคตะวันออกเฉียงเหนือ", "ภาคตะวันออก"]
 
 # National aggregate name
 COUNTRY_NAME = "ทั้งประเทศ"
@@ -35,7 +35,7 @@ OFFICIAL_77_PROVINCES = [
     "อุทัยธานี", "อุบลราชธานี"
 ]
 
-# Standard 4-region mapping conforming to OAE and MOAC definitions
+# Standard geographical region mapping conforming to official Thai standards (Royal Society / ราชบัณฑิตยสภา)
 PROVINCE_TO_REGION: Dict[str, str] = {
     # ภาคเหนือ (17 จังหวัด)
     "เชียงใหม่": "ภาคเหนือ", "เชียงราย": "ภาคเหนือ", "แม่ฮ่องสอน": "ภาคเหนือ", "ลำปาง": "ภาคเหนือ",
@@ -51,14 +51,15 @@ PROVINCE_TO_REGION: Dict[str, str] = {
     "เลย": "ภาคตะวันออกเฉียงเหนือ", "หนองคาย": "ภาคตะวันออกเฉียงเหนือ", "มหาสารคาม": "ภาคตะวันออกเฉียงเหนือ",
     "ร้อยเอ็ด": "ภาคตะวันออกเฉียงเหนือ", "กาฬสินธุ์": "ภาคตะวันออกเฉียงเหนือ", "สกลนคร": "ภาคตะวันออกเฉียงเหนือ",
     "นครพนม": "ภาคตะวันออกเฉียงเหนือ", "มุกดาหาร": "ภาคตะวันออกเฉียงเหนือ",
-    # ภาคกลาง (26 จังหวัด)
+    # ภาคกลาง (19 จังหวัด)
     "กรุงเทพมหานคร": "ภาคกลาง", "สมุทรปราการ": "ภาคกลาง", "นนทบุรี": "ภาคกลาง", "ปทุมธานี": "ภาคกลาง",
     "พระนครศรีอยุธยา": "ภาคกลาง", "อ่างทอง": "ภาคกลาง", "ลพบุรี": "ภาคกลาง", "สิงห์บุรี": "ภาคกลาง",
-    "ชัยนาท": "ภาคกลาง", "สระบุรี": "ภาคกลาง", "นครนายก": "ภาคกลาง", "ปราจีนบุรี": "ภาคกลาง",
-    "สระแก้ว": "ภาคกลาง", "ฉะเชิงเทรา": "ภาคกลาง", "ชลบุรี": "ภาคกลาง", "ระยอง": "ภาคกลาง",
-    "จันทบุรี": "ภาคกลาง", "ตราด": "ภาคกลาง", "กาญจนบุรี": "ภาคกลาง", "สุพรรณบุรี": "ภาคกลาง",
-    "นครปฐม": "ภาคกลาง", "ราชบุรี": "ภาคกลาง", "สมุทรสาคร": "ภาคกลาง", "สมุทรสงคราม": "ภาคกลาง",
-    "เพชรบุรี": "ภาคกลาง", "ประจวบคีรีขันธ์": "ภาคกลาง",
+    "ชัยนาท": "ภาคกลาง", "สระบุรี": "ภาคกลาง", "นครนายก": "ภาคกลาง", "กาญจนบุรี": "ภาคกลาง",
+    "สุพรรณบุรี": "ภาคกลาง", "นครปฐม": "ภาคกลาง", "ราชบุรี": "ภาคกลาง", "สมุทรสาคร": "ภาคกลาง",
+    "สมุทรสงคราม": "ภาคกลาง", "เพชรบุรี": "ภาคกลาง", "ประจวบคีรีขันธ์": "ภาคกลาง",
+    # ภาคตะวันออก (7 จังหวัด)
+    "ฉะเชิงเทรา": "ภาคตะวันออก", "ชลบุรี": "ภาคตะวันออก", "ระยอง": "ภาคตะวันออก", "จันทบุรี": "ภาคตะวันออก",
+    "ตราด": "ภาคตะวันออก", "ปราจีนบุรี": "ภาคตะวันออก", "สระแก้ว": "ภาคตะวันออก",
     # ภาคใต้ (14 จังหวัด)
     "ชุมพร": "ภาคใต้", "สุราษฎร์ธานี": "ภาคใต้", "นครศรีธรรมราช": "ภาคใต้", "พัทลุง": "ภาคใต้",
     "สงขลา": "ภาคใต้", "ปัตตานี": "ภาคใต้", "ยะลา": "ภาคใต้", "นราธิวาส": "ภาคใต้",
@@ -70,6 +71,7 @@ REGION_TO_PROVINCES: Dict[str, List[str]] = {
     "ภาคเหนือ": [p for p, r in PROVINCE_TO_REGION.items() if r == "ภาคเหนือ"],
     "ภาคตะวันออกเฉียงเหนือ": [p for p, r in PROVINCE_TO_REGION.items() if r == "ภาคตะวันออกเฉียงเหนือ"],
     "ภาคกลาง": [p for p, r in PROVINCE_TO_REGION.items() if r == "ภาคกลาง"],
+    "ภาคตะวันออก": [p for p, r in PROVINCE_TO_REGION.items() if r == "ภาคตะวันออก"],
     "ภาคใต้": [p for p, r in PROVINCE_TO_REGION.items() if r == "ภาคใต้"],
 }
 
@@ -179,7 +181,10 @@ def clean_agriculture_data(df: pd.DataFrame) -> pd.DataFrame:
 def clean_oae_farmgate_prices(df: pd.DataFrame) -> pd.DataFrame:
     """
     Clean and structure OAE farmgate commodity prices.
-    Converts prices from Baht/ton to Baht/kg and formats temporal fields.
+    Harmonizes commodity units based on official OAE price survey methodology:
+    - Rice Paddy (ข้าวเปลือก) & Sugarcane (อ้อยโรงงาน): surveyed in Baht/ton.
+    - Coconut (มะพร้าวแห้ง): surveyed in Baht/100 fruits.
+    - Rubber, Palm Oil, Cassava, Maize, Fruits, Coffee, Vegetables: surveyed in Baht/kg.
     """
     df = df.copy()
     rename_cols = {
@@ -187,7 +192,7 @@ def clean_oae_farmgate_prices(df: pd.DataFrame) -> pd.DataFrame:
         "YEAR": "year",
         "MONTH_C": "month",
         "WEEK_C": "week",
-        "PRICE": "price_baht_per_ton"
+        "PRICE": "native_price"
     }
     df = df.rename(columns=rename_cols)
 
@@ -195,13 +200,50 @@ def clean_oae_farmgate_prices(df: pd.DataFrame) -> pd.DataFrame:
     df["year"] = pd.to_numeric(df["year"], errors="coerce")
     df["month"] = pd.to_numeric(df["month"], errors="coerce")
     df["week"] = pd.to_numeric(df["week"], errors="coerce")
-    df["price_baht_per_ton"] = pd.to_numeric(df["price_baht_per_ton"], errors="coerce")
+    df["native_price"] = pd.to_numeric(df["native_price"], errors="coerce")
 
-    # Add Baht/kg unit: Price (Baht/ton) / 1000
-    df["price_baht_per_kg"] = df["price_baht_per_ton"] / 1000.0
-    df["data_source"] = "สำนักงานเศรษฐกิจการเกษตร (สศก.)"
+    # Drop invalid records
+    df = df.dropna(subset=["product", "year", "native_price"]).reset_index(drop=True)
 
-    return df.dropna(subset=["product", "year", "price_baht_per_ton"]).reset_index(drop=True)
+    # Determine native unit per product
+    def resolve_native_unit(prod: str) -> str:
+        p = str(prod).strip()
+        if any(kw in p for kw in ["ข้าวเปลือก", "ข้าวเหนียว", "อ้อยโรงงาน"]):
+            return "บาท/ตัน"
+        elif "มะพร้าวแห้ง" in p:
+            return "บาท/ร้อยผล"
+        else:
+            return "บาท/กก."
+
+    df["native_unit"] = df["product"].apply(resolve_native_unit)
+
+    # Calculate standardized price in Baht/kg and Baht/ton
+    def to_baht_per_kg(row) -> float:
+        u = row["native_unit"]
+        val = row["native_price"]
+        if u == "บาท/ตัน":
+            return val / 1000.0
+        elif u == "บาท/กก.":
+            return val
+        elif u == "บาท/ร้อยผล":
+            return val / 100.0
+        return val
+
+    def to_baht_per_ton(row) -> float:
+        u = row["native_unit"]
+        val = row["native_price"]
+        if u == "บาท/ตัน":
+            return val
+        elif u == "บาท/กก.":
+            return val * 1000.0
+        return np.nan
+
+    df["price_baht_per_kg"] = df.apply(to_baht_per_kg, axis=1)
+    df["price_baht_per_ton"] = df.apply(to_baht_per_ton, axis=1)
+    df["frequency"] = "รายสัปดาห์ (Weekly)"
+    df["data_source"] = "สำนักงานเศรษฐกิจการเกษตร (สศก.) & NABC"
+
+    return df.reset_index(drop=True)
 
 
 def normalize_agromet_dataframe(df: pd.DataFrame) -> pd.DataFrame:

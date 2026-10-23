@@ -973,13 +973,18 @@ def generate_farmer_decision_advisory(
     }
 
 
-def compute_price_summary_metrics(df_prices: pd.DataFrame, crop_name: str) -> Dict[str, Any]:
+def compute_price_summary_metrics(
+    df_prices: pd.DataFrame,
+    crop_name: str,
+    unit_mode: str = "native"
+) -> Dict[str, Any]:
     """
     Compute verified summary metrics for agricultural market prices from OAE.
-    Includes latest price, min, max, average, and weekly/monthly changes.
+    Includes latest price, min, max, average, weekly/monthly changes, and native units.
+    Strictly returns has_data=False when no matching data exists, never fabricating or substituting surrogate crop prices.
     """
     if df_prices.empty or "product" not in df_prices.columns:
-        return {"has_data": False}
+        return {"has_data": False, "message": "ไม่มีชุดข้อมูลราคาในระบบ"}
 
     sub = df_prices[df_prices["product"] == crop_name].copy()
     if sub.empty:
@@ -989,31 +994,44 @@ def compute_price_summary_metrics(df_prices: pd.DataFrame, crop_name: str) -> Di
             crop_name = partial_match["product"].iloc[0]
             sub = df_prices[df_prices["product"] == crop_name].copy()
         else:
-            sub = df_prices.copy()
-            crop_name = sub["product"].iloc[0]
+            return {"has_data": False, "message": f"ไม่พบข้อมูลราคาสำหรับ '{crop_name}' ในฐานข้อมูลราคา สศก."}
 
     sub = sub.sort_values(by=["year", "month", "week"]).reset_index(drop=True)
-    price_col = "price_baht_per_kg" if "price_baht_per_kg" in sub.columns else "price_baht_per_ton"
-    unit_str = "บาท/กก." if price_col == "price_baht_per_kg" else "บาท/ตัน"
+    
+    # Resolve unit and price column
+    native_unit = str(sub["native_unit"].iloc[0]) if "native_unit" in sub.columns else "บาท/กก."
+    if unit_mode == "native":
+        price_col = "native_price" if "native_price" in sub.columns else ("price_baht_per_kg" if "price_baht_per_kg" in sub.columns else "price_baht_per_ton")
+        unit_str = native_unit
+    elif unit_mode == "baht_per_ton" and "price_baht_per_ton" in sub.columns and sub["price_baht_per_ton"].notna().any():
+        price_col = "price_baht_per_ton"
+        unit_str = "บาท/ตัน"
+    else:
+        price_col = "price_baht_per_kg" if "price_baht_per_kg" in sub.columns else "native_price"
+        unit_str = "บาท/กก."
 
-    latest_val = float(sub[price_col].iloc[-1])
-    min_val = float(sub[price_col].min())
-    max_val = float(sub[price_col].max())
-    mean_val = float(sub[price_col].mean())
+    valid_prices = sub[price_col].dropna()
+    if valid_prices.empty:
+        return {"has_data": False, "message": f"ไม่พบตัวเลขราคาที่สมบูรณ์สำหรับ '{crop_name}'"}
+
+    latest_val = float(valid_prices.iloc[-1])
+    min_val = float(valid_prices.min())
+    max_val = float(valid_prices.max())
+    mean_val = float(valid_prices.mean())
 
     # Calculate WoW change
     wow_change = 0.0
     wow_pct = 0.0
-    if len(sub) >= 2:
-        prev_val = float(sub[price_col].iloc[-2])
+    if len(valid_prices) >= 2:
+        prev_val = float(valid_prices.iloc[-2])
         wow_change = round(latest_val - prev_val, 2)
         wow_pct = round((wow_change / prev_val) * 100.0, 2) if prev_val > 0 else 0.0
 
     # Calculate MoM change (approx 4 weeks back)
     mom_change = 0.0
     mom_pct = 0.0
-    if len(sub) >= 5:
-        prev_month_val = float(sub[price_col].iloc[-5])
+    if len(valid_prices) >= 5:
+        prev_month_val = float(valid_prices.iloc[-5])
         mom_change = round(latest_val - prev_month_val, 2)
         mom_pct = round((mom_change / prev_month_val) * 100.0, 2) if prev_month_val > 0 else 0.0
 
@@ -1024,6 +1042,7 @@ def compute_price_summary_metrics(df_prices: pd.DataFrame, crop_name: str) -> Di
     return {
         "has_data": True,
         "product": crop_name,
+        "native_unit": native_unit,
         "latest_price": latest_val,
         "min_price": min_val,
         "max_price": max_val,
@@ -1034,6 +1053,7 @@ def compute_price_summary_metrics(df_prices: pd.DataFrame, crop_name: str) -> Di
         "mom_change": mom_change,
         "mom_pct": mom_pct,
         "latest_period": f"สัปดาห์ที่ {latest_week} เดือน {latest_month} ปี พ.ศ. {latest_year}",
-        "data_source": "สำนักงานเศรษฐกิจการเกษตร (สศก.)",
+        "frequency": "รายสัปดาห์ (Weekly)",
+        "data_source": "สำนักงานเศรษฐกิจการเกษตร (สศก.) & NABC",
         "num_records": len(sub)
     }

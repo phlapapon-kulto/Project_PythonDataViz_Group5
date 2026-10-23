@@ -522,11 +522,11 @@ def create_yoy_bar_chart(
 def create_price_trend_chart(
     df_price: pd.DataFrame,
     product_name: str,
-    unit_mode: str = "baht_per_kg"
+    unit_mode: str = "native"
 ) -> go.Figure:
     """
     Time series line chart for official OAE farmgate commodity prices.
-    Supports Baht/kg or Baht/ton.
+    Strictly filters data for the selected product and displays weekly frequency and true native units.
     """
     fig = go.Figure()
     if df_price.empty:
@@ -537,16 +537,43 @@ def create_price_trend_chart(
         )
         return fig
 
+    # Filter strictly for the requested product
+    if "product" in df_price.columns:
+        plot_df = df_price[df_price["product"] == product_name].copy()
+        if plot_df.empty:
+            partial = df_price[df_price["product"].str.contains(product_name, na=False)]
+            if not partial.empty:
+                plot_df = partial.copy()
+                product_name = plot_df["product"].iloc[0]
+            else:
+                apply_standard_layout(
+                    fig,
+                    title=f"แนวโน้มราคา {product_name} (สศก.)",
+                    annotations=[dict(text=f"ไม่พบข้อมูลราคาสำหรับ '{product_name}' ในช่วงเวลานี้", showarrow=False, font=dict(size=14, color=COLOR_TEXT_MUTED))]
+                )
+                return fig
+    else:
+        plot_df = df_price.copy()
+
     # Sort chronologically by year, month, week
-    plot_df = df_price.sort_values(by=["year", "month", "week"]).copy()
+    plot_df = plot_df.sort_values(by=["year", "month", "week"]).reset_index(drop=True)
     plot_df["time_label"] = (
         "ปี " + plot_df["year"].astype(str) +
         " ด." + plot_df["month"].astype(str) +
         " ส." + plot_df["week"].astype(str)
     )
 
-    y_col = "price_baht_per_kg" if unit_mode == "baht_per_kg" else "price_baht_per_ton"
-    unit_label = "บาท/กก." if unit_mode == "baht_per_kg" else "บาท/ตัน"
+    # Resolve unit and price column
+    native_unit = str(plot_df["native_unit"].iloc[0]) if "native_unit" in plot_df.columns else "บาท/กก."
+    if unit_mode == "native":
+        y_col = "native_price" if "native_price" in plot_df.columns else ("price_baht_per_kg" if "price_baht_per_kg" in plot_df.columns else "price_baht_per_ton")
+        unit_label = native_unit
+    elif unit_mode == "baht_per_ton" and "price_baht_per_ton" in plot_df.columns and plot_df["price_baht_per_ton"].notna().any():
+        y_col = "price_baht_per_ton"
+        unit_label = "บาท/ตัน"
+    else:
+        y_col = "price_baht_per_kg" if "price_baht_per_kg" in plot_df.columns else "native_price"
+        unit_label = "บาท/กก."
 
     fig.add_trace(go.Scatter(
         x=plot_df["time_label"],
@@ -555,13 +582,16 @@ def create_price_trend_chart(
         name=product_name,
         line=dict(color=COLOR_FOREST_MED, width=2.5),
         marker=dict(size=6, color=COLOR_FOREST_DARK),
-        hovertemplate=f"<b>%{{x}}</b><br>ราคาหน้าไร่นา: <b>%{{y:,.2f}} {unit_label}</b><extra></extra>"
+        hovertemplate=f"<b>%{{x}}</b><br>ราคาหน้าไร่นา: <b>%{{y:,.2f}} {unit_label}</b><br>ความถี่: รายสัปดาห์ (สศก.)<extra></extra>"
     ))
 
     apply_standard_layout(
         fig,
-        title=dict(text=f"<b>แนวโน้มราคาที่เกษตรกรขายได้ที่ไร่นา: {product_name}</b> (สศก.)", font=dict(size=14, color=COLOR_FOREST_DARK)),
-        xaxis=dict(title="คาบเวลา (ปี/เดือน/สัปดาห์)", showgrid=True, gridcolor="#E2E8F0"),
+        title=dict(
+            text=f"<b>แนวโน้มราคาที่เกษตรกรขายได้ที่ไร่นา: {product_name}</b> (ความถี่: รายสัปดาห์ | สศก.)",
+            font=dict(size=14, color=COLOR_FOREST_DARK)
+        ),
+        xaxis=dict(title="คาบเวลา (สัปดาห์/เดือน/ปี พ.ศ.)", showgrid=True, gridcolor="#E2E8F0"),
         yaxis=dict(title=f"ราคา ({unit_label})", showgrid=True, gridcolor="#E2E8F0"),
         height=380,
         margin=dict(l=20, r=20, t=40, b=40)
@@ -1175,14 +1205,68 @@ def create_market_price_map(
 ) -> go.Figure:
     """
     Generate Thailand map for Tab 3: Market & Price Intelligence.
-    Visualizes provincial production volume and market concentration (tons) for the selected crop.
+    Visualizes provincial production volume and market supply concentration (tons) for the commodity.
+    Intelligently maps market price survey names to corresponding agricultural production statistics.
     """
     all_provinces = [f["properties"]["pro_th"] for f in geojson_data["features"]]
     base_df = pd.DataFrame({"province": all_provinces})
 
     ag_sub = df_ag[(df_ag["geo_level"] == "province") & (df_ag["year"] == year)].copy()
+    
+    # Resolve matching production crop
+    matched_crop = crop_name
     if crop_name != "ทั้งหมด" and not ag_sub.empty:
-        ag_sub = ag_sub[ag_sub["product"] == crop_name]
+        available_ag_crops = ag_sub["product"].dropna().unique().tolist()
+        if crop_name in available_ag_crops:
+            matched_crop = crop_name
+        elif "นาปรัง" in crop_name and "ข้าวนาปรัง" in available_ag_crops:
+            matched_crop = "ข้าวนาปรัง"
+        elif any(k in crop_name for k in ["ข้าวเปลือก", "ข้าวเหนียว", "หอมมะลิ"]) and "ข้าวนาปี" in available_ag_crops:
+            matched_crop = "ข้าวนาปี"
+        elif "มันสำปะหลัง" in crop_name or "มันเส้น" in crop_name:
+            matched_crop = "มันสำปะหลัง"
+        elif "ข้าวโพด" in crop_name:
+            matched_crop = "ข้าวโพดเลี้ยงสัตว์"
+        elif "ปาล์ม" in crop_name:
+            matched_crop = "ปาล์มน้ำมัน"
+        elif any(k in crop_name for k in ["ยาง", "น้ำยาง"]):
+            matched_crop = "ยางพารา"
+        elif "กาแฟ" in crop_name:
+            matched_crop = "กาแฟ"
+        elif "ส้ม" in crop_name:
+            matched_crop = "ส้มเขียวหวาน"
+        elif "สับปะรด" in crop_name:
+            matched_crop = "สับปะรด"
+        elif "ลำไย" in crop_name:
+            matched_crop = "ลำไย"
+        elif "ลิ้นจี่" in crop_name:
+            matched_crop = "ลิ้นจี่"
+        elif "มังคุด" in crop_name:
+            matched_crop = "มังคุด"
+        elif "เงาะ" in crop_name:
+            matched_crop = "เงาะ"
+        elif "ลองกอง" in crop_name:
+            matched_crop = "ลองกอง"
+        elif "กระเทียม" in crop_name:
+            matched_crop = "กระเทียม"
+        elif "หอมแดง" in crop_name:
+            matched_crop = "หอมแดง"
+        elif "พริกไทย" in crop_name:
+            matched_crop = "พริกไทย"
+        elif "ถั่วเหลือง" in crop_name:
+            matched_crop = "ถั่วเหลือง"
+        else:
+            # Fallback substring
+            found = False
+            for c in available_ag_crops:
+                if c in crop_name or crop_name in c:
+                    matched_crop = c
+                    found = True
+                    break
+            if not found:
+                matched_crop = crop_name
+
+        ag_sub = ag_sub[ag_sub["product"] == matched_crop]
 
     ag_prov = ag_sub.groupby("province")["production_ton"].sum().reset_index() if not ag_sub.empty else pd.DataFrame(columns=["province", "production_ton"])
     total_national_prod = ag_prov["production_ton"].sum() if not ag_prov.empty else 0.0
@@ -1194,12 +1278,13 @@ def create_market_price_map(
         p = row["province"]
         val = row["production_ton"]
         if pd.isna(val) or val <= 0:
-            hover_texts.append(f"<b>จังหวัด{p}</b><br>สินค้า: {crop_name}<br>ผลผลิตเข้าสู่ตลาด: <i>ไม่มีข้อมูลการผลิต</i>")
+            hover_texts.append(f"<b>จังหวัด{p}</b><br>สินค้า: {matched_crop}<br>ผลผลิตเข้าสู่ตลาด: <i>ไม่มีข้อมูลการผลิตในปี พ.ศ. {year}</i>")
         else:
             share_pct = (val / total_national_prod * 100.0) if total_national_prod > 0 else 0.0
+            display_note = f" (เกรดราคา: {crop_name})" if matched_crop != crop_name else ""
             hover_texts.append(
                 f"<b>จังหวัด{p}</b><br>"
-                f"สินค้า: {crop_name} (พ.ศ. {year})<br>"
+                f"สินค้า: {matched_crop}{display_note}<br>"
                 f"ปริมาณผลผลิตรวม: <b>{val:,.0f} ตัน</b><br>"
                 f"สัดส่วนในตลาดประเทศ: <b>{share_pct:.1f}%</b><br>"
                 f"<i>*ราคาหน้าฟาร์มเป็นราคาอ้างอิงระดับประเทศจาก สศก.</i>"
