@@ -119,3 +119,4 @@ pip install -r requirements.txt
 # เปิดใช้งาน Dashboard
 streamlit run app.py
 ```
+**Dashboard Link:** https://projectpythondatavizgroup5-spgjctv7c8j8qpbywthqsl.streamlit.app/
