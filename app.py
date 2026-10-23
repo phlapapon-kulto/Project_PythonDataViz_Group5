@@ -33,12 +33,22 @@ if not sys.path or sys.path[0] != root_str:
 # to '/mount/src' instead of the repository's '<repo_name>/src'.
 # If 'src' exists in sys.modules and does not point to our repository package, purge it
 # so that Python imports the actual package defined in '<repo_name>/src/__init__.py'.
-if "src" in sys.modules:
-    src_mod = sys.modules["src"]
-    src_file = getattr(src_mod, "__file__", None)
-    expected_src_init = (ROOT_DIR / "src" / "__init__.py").resolve()
-    if src_file is None or Path(src_file).resolve() != expected_src_init:
-        del sys.modules["src"]
+# If 'src' or any 'src.*' submodules exist in sys.modules and do not point to our repository, purge them
+# so that Python always imports fresh packages defined in '<repo_name>/src/'.
+expected_src_dir = (ROOT_DIR / "src").resolve()
+for m in list(sys.modules.keys()):
+    if m == "src" or m.startswith("src."):
+        mod = sys.modules.get(m)
+        mod_file = getattr(mod, "__file__", None)
+        if mod_file is None:
+            del sys.modules[m]
+        else:
+            try:
+                mod_path = Path(mod_file).resolve()
+                if not mod_path.is_relative_to(expected_src_dir):
+                    del sys.modules[m]
+            except Exception:
+                del sys.modules[m]
 
 import streamlit as st
 import pandas as pd
@@ -1280,19 +1290,63 @@ with tab3:
         st.markdown(f"#### 📊 สารสนเทศราคารายสัปดาห์: **{selected_price_crop}**")
 
         if not price_sub.empty:
-            price_metrics = compute_price_summary_metrics(price_sub, selected_price_crop, unit_mode="native")
+            try:
+                price_metrics = compute_price_summary_metrics(price_sub, selected_price_crop, unit_mode="native")
+            except TypeError:
+                price_metrics = compute_price_summary_metrics(price_sub, selected_price_crop)
         else:
-            price_metrics = {"has_data": False, "message": f"ไม่พบข้อมูลราคาสำหรับ '{selected_price_crop}' ในช่วงเวลาที่เลือก"}
+            price_metrics = {
+                "has_data": False,
+                "message": f"ไม่พบข้อมูลราคาสำหรับ '{selected_price_crop}' ในช่วงเวลาที่เลือก",
+                "unit": "บาท/กก.",
+                "latest_price": 0.0,
+                "mean_price": 0.0,
+                "max_price": 0.0,
+                "min_price": 0.0,
+                "wow_change": 0.0,
+                "wow_pct": 0.0,
+                "latest_period": "ไม่มีข้อมูล"
+            }
+
+        if not isinstance(price_metrics, dict):
+            price_metrics = {"has_data": False, "message": "ไม่สามารถคำนวณสถิติราคาได้"}
 
         if price_metrics.get("has_data", False):
+            def _fmt_price_val(v, default="0.00", fmt="{:,.2f}"):
+                if v is None or pd.isna(v):
+                    return default
+                try:
+                    return fmt.format(float(v))
+                except (ValueError, TypeError):
+                    return default
+
+            latest_p_str = _fmt_price_val(price_metrics.get("latest_price"))
+            mean_p_str = _fmt_price_val(price_metrics.get("mean_price"))
+            max_p_str = _fmt_price_val(price_metrics.get("max_price"))
+            min_p_str = _fmt_price_val(price_metrics.get("min_price"))
+            unit_str = str(price_metrics.get("unit", "บาท/กก."))
+            latest_period_str = str(price_metrics.get("latest_period", "ไม่มีข้อมูล"))
+
+            wow_val = price_metrics.get("wow_change", 0.0)
+            wow_p = price_metrics.get("wow_pct", 0.0)
+            try:
+                wow_num = float(wow_val) if (wow_val is not None and not pd.isna(wow_val)) else 0.0
+                wow_pct_num = float(wow_p) if (wow_p is not None and not pd.isna(wow_p)) else 0.0
+            except (ValueError, TypeError):
+                wow_num = 0.0
+                wow_pct_num = 0.0
+
+            wow_badge = "delta-badge-pos" if wow_num >= 0 else "delta-badge-neg"
+            wow_str = f"{wow_num:+.2f} ({wow_pct_num:+.1f}%)"
+
             # 4 Price KPI Cards
             col_p1, col_p2, col_p3, col_p4 = st.columns(4)
             with col_p1:
                 st.markdown(f"""
                 <div class="kpi-card" style="padding: 12px 14px;">
                     <div class="kpi-label">ราคาล่าสุด</div>
-                    <div class="kpi-value">{price_metrics['latest_price']:,.2f}<span class="kpi-unit">{price_metrics['unit']}</span></div>
-                    <div class="kpi-sub"><span class="delta-badge-pos">ล่าสุด: {price_metrics['latest_period']}</span></div>
+                    <div class="kpi-value">{latest_p_str}<span class="kpi-unit">{unit_str}</span></div>
+                    <div class="kpi-sub"><span class="delta-badge-pos">ล่าสุด: {latest_period_str}</span></div>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -1300,7 +1354,7 @@ with tab3:
                 st.markdown(f"""
                 <div class="kpi-card" style="padding: 12px 14px;">
                     <div class="kpi-label">ราคาเฉลี่ยรอบที่เลือก</div>
-                    <div class="kpi-value">{price_metrics['mean_price']:,.2f}<span class="kpi-unit">{price_metrics['unit']}</span></div>
+                    <div class="kpi-value">{mean_p_str}<span class="kpi-unit">{unit_str}</span></div>
                     <div class="kpi-sub"><span class="delta-badge-neutral">{selected_price_year_choice}</span></div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1309,17 +1363,16 @@ with tab3:
                 st.markdown(f"""
                 <div class="kpi-card" style="padding: 12px 14px;">
                     <div class="kpi-label">ราคาสูงสุด-ต่ำสุด</div>
-                    <div class="kpi-value" style="font-size: 19px;">{price_metrics['max_price']:,.2f}<span class="kpi-unit">/ {price_metrics['min_price']:,.2f}</span></div>
-                    <div class="kpi-sub"><span class="delta-badge-neutral">{price_metrics['unit']}</span></div>
+                    <div class="kpi-value" style="font-size: 19px;">{max_p_str}<span class="kpi-unit">/ {min_p_str}</span></div>
+                    <div class="kpi-sub"><span class="delta-badge-neutral">{unit_str}</span></div>
                 </div>
                 """, unsafe_allow_html=True)
 
             with col_p4:
-                wow_badge = "delta-badge-pos" if price_metrics['wow_change'] >= 0 else "delta-badge-neg"
                 st.markdown(f"""
                 <div class="kpi-card" style="padding: 12px 14px;">
                     <div class="kpi-label">การเปลี่ยนแปลงรายสัปดาห์</div>
-                    <div class="kpi-value" style="font-size: 19px;"><span class="{wow_badge}">{price_metrics['wow_change']:+.2f} ({price_metrics['wow_pct']:+.1f}%)</span></div>
+                    <div class="kpi-value" style="font-size: 19px;"><span class="{wow_badge}">{wow_str}</span></div>
                     <div class="kpi-sub"><span class="delta-badge-neutral">เทียบสัปดาห์ก่อนหน้า</span></div>
                 </div>
                 """, unsafe_allow_html=True)

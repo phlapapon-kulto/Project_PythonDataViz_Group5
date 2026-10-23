@@ -541,7 +541,7 @@ def create_price_trend_chart(
     if "product" in df_price.columns:
         plot_df = df_price[df_price["product"] == product_name].copy()
         if plot_df.empty:
-            partial = df_price[df_price["product"].str.contains(product_name, na=False)]
+            partial = df_price[df_price["product"].str.contains(str(product_name), regex=False, na=False)]
             if not partial.empty:
                 plot_df = partial.copy()
                 product_name = plot_df["product"].iloc[0]

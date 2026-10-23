@@ -672,6 +672,9 @@ def compare_production_cost_and_price(
     Compare OAE benchmark production cost structure with actual average farmgate prices.
     Calculates net margin, break-even, and profit indicators.
     """
+    if cost_df is None or not isinstance(cost_df, pd.DataFrame) or cost_df.empty:
+        return {"has_data": False, "message": f"ไม่มีข้อมูลโครงสร้างต้นทุน สศก. สำหรับ {crop}"}
+
     cost_sub = cost_df[(cost_df["crop"] == crop) & (cost_df["crop_year"] == year)]
     if cost_sub.empty:
         cost_sub = cost_df[cost_df["crop"] == crop]
@@ -688,13 +691,18 @@ def compare_production_cost_and_price(
         "มันสำปะหลัง": "หัวมันสำปะหลังสดเชื้อแป้ง 25%",
         "อ้อยโรงงาน": "อ้อยโรงงาน"
     }
-    prod_col = "product" if "product" in price_df.columns else ("product_clean" if "product_clean" in price_df.columns else price_df.columns[0])
-    price_col = "price_baht_per_kg" if "price_baht_per_kg" in price_df.columns else ("price_value" if "price_value" in price_df.columns else price_df.columns[-1])
 
-    target_prod = price_match_map.get(crop, crop)
-    p_sub = price_df[price_df[prod_col] == target_prod]
-    if p_sub.empty:
-        p_sub = price_df[price_df[prod_col].str.contains(crop, na=False)]
+    if price_df is not None and isinstance(price_df, pd.DataFrame) and not price_df.empty and len(price_df.columns) > 0:
+        prod_col = "product" if "product" in price_df.columns else ("product_clean" if "product_clean" in price_df.columns else price_df.columns[0])
+        price_col = "price_baht_per_kg" if "price_baht_per_kg" in price_df.columns else ("price_value" if "price_value" in price_df.columns else price_df.columns[-1])
+
+        target_prod = price_match_map.get(crop, crop)
+        p_sub = price_df[price_df[prod_col] == target_prod]
+        if p_sub.empty:
+            p_sub = price_df[price_df[prod_col].str.contains(str(crop), regex=False, na=False)]
+    else:
+        p_sub = pd.DataFrame()
+        price_col = "price_baht_per_kg"
 
     if not p_sub.empty:
         avg_price = float(p_sub[price_col].mean())
@@ -974,32 +982,92 @@ def generate_farmer_decision_advisory(
 
 
 def compute_price_summary_metrics(
-    df_prices: pd.DataFrame,
-    crop_name: str,
-    unit_mode: str = "native"
+    df_prices: Optional[pd.DataFrame],
+    crop_name: Optional[str],
+    unit_mode: str = "native",
+    *args,
+    **kwargs
 ) -> Dict[str, Any]:
     """
     Compute verified summary metrics for agricultural market prices from OAE.
     Includes latest price, min, max, average, weekly/monthly changes, and native units.
-    Strictly returns has_data=False when no matching data exists, never fabricating or substituting surrogate crop prices.
+    Strictly handles nulls, missing data, empty DataFrames, and mixed units without crashing.
+    Never fabricates or substitutes surrogate crop prices when data is unavailable.
     """
-    if df_prices.empty or "product" not in df_prices.columns:
-        return {"has_data": False, "message": "ไม่มีชุดข้อมูลราคาในระบบ"}
+    empty_result = {
+        "has_data": False,
+        "message": "ไม่มีชุดข้อมูลราคาในระบบ",
+        "product": str(crop_name) if crop_name else "",
+        "native_unit": "บาท/กก.",
+        "latest_price": 0.0,
+        "min_price": 0.0,
+        "max_price": 0.0,
+        "mean_price": 0.0,
+        "unit": "บาท/กก.",
+        "wow_change": 0.0,
+        "wow_pct": 0.0,
+        "mom_change": 0.0,
+        "mom_pct": 0.0,
+        "latest_period": "ไม่มีข้อมูล",
+        "frequency": "รายสัปดาห์ (Weekly)",
+        "data_source": "สำนักงานเศรษฐกิจการเกษตร (สศก.) & NABC",
+        "num_records": 0
+    }
 
-    sub = df_prices[df_prices["product"] == crop_name].copy()
+    # 1. Validate inputs
+    if df_prices is None or not isinstance(df_prices, pd.DataFrame) or df_prices.empty:
+        return empty_result
+
+    if "product" not in df_prices.columns:
+        empty_result["message"] = "ชุดข้อมูลราคาไม่มีคอลัมน์ชนิดพืช (product)"
+        return empty_result
+
+    if crop_name is None or not isinstance(crop_name, str) or not crop_name.strip():
+        empty_result["message"] = "ไม่ได้ระบุชนิดสินค้าเกษตรที่ถูกต้อง"
+        return empty_result
+
+    clean_crop = crop_name.strip()
+    empty_result["product"] = clean_crop
+
+    # 2. Filter for matching crop
+    sub = df_prices[df_prices["product"] == clean_crop].copy()
     if sub.empty:
-        # Check partial substring match (e.g. 'มันสำปะหลัง' in 'มันสำปะหลังสด')
-        partial_match = df_prices[df_prices["product"].str.contains(crop_name, na=False)]
-        if not partial_match.empty:
-            crop_name = partial_match["product"].iloc[0]
-            sub = df_prices[df_prices["product"] == crop_name].copy()
-        else:
-            return {"has_data": False, "message": f"ไม่พบข้อมูลราคาสำหรับ '{crop_name}' ในฐานข้อมูลราคา สศก."}
+        # Check partial substring match safely with regex=False
+        try:
+            partial_match = df_prices[df_prices["product"].astype(str).str.contains(clean_crop, regex=False, na=False)]
+            if not partial_match.empty:
+                resolved_crop = str(partial_match["product"].iloc[0])
+                sub = df_prices[df_prices["product"] == resolved_crop].copy()
+                clean_crop = resolved_crop
+                empty_result["product"] = resolved_crop
+            else:
+                empty_result["message"] = f"ไม่พบข้อมูลราคาสำหรับ '{clean_crop}' ในฐานข้อมูลราคา สศก."
+                return empty_result
+        except Exception:
+            empty_result["message"] = f"ไม่พบข้อมูลราคาสำหรับ '{clean_crop}' ในฐานข้อมูลราคา สศก."
+            return empty_result
 
-    sub = sub.sort_values(by=["year", "month", "week"]).reset_index(drop=True)
-    
-    # Resolve unit and price column
-    native_unit = str(sub["native_unit"].iloc[0]) if "native_unit" in sub.columns else "บาท/กก."
+    if sub.empty:
+        empty_result["message"] = f"ไม่พบข้อมูลราคาสำหรับ '{clean_crop}' ในฐานข้อมูลราคา สศก."
+        return empty_result
+
+    # 3. Sort chronologically
+    sort_cols = [c for c in ["year", "month", "week"] if c in sub.columns]
+    if sort_cols:
+        sub = sub.sort_values(by=sort_cols).reset_index(drop=True)
+
+    # 4. Resolve unit mode and price column
+    if not isinstance(unit_mode, str) or not unit_mode:
+        unit_mode = "native"
+
+    # Harmonize unit: if sub has multiple units, filter to primary unit to avoid comparing mixed units
+    if "native_unit" in sub.columns and sub["native_unit"].nunique() > 1:
+        primary_unit = sub["native_unit"].mode().iloc[0]
+        sub = sub[sub["native_unit"] == primary_unit].copy()
+
+    raw_native_unit = sub["native_unit"].dropna().iloc[0] if "native_unit" in sub.columns and not sub["native_unit"].dropna().empty else "บาท/กก."
+    native_unit = str(raw_native_unit).strip()
+
     if unit_mode == "native":
         price_col = "native_price" if "native_price" in sub.columns else ("price_baht_per_kg" if "price_baht_per_kg" in sub.columns else "price_baht_per_ton")
         unit_str = native_unit
@@ -1007,41 +1075,77 @@ def compute_price_summary_metrics(
         price_col = "price_baht_per_ton"
         unit_str = "บาท/ตัน"
     else:
-        price_col = "price_baht_per_kg" if "price_baht_per_kg" in sub.columns else "native_price"
+        price_col = "price_baht_per_kg" if "price_baht_per_kg" in sub.columns else ("native_price" if "native_price" in sub.columns else "price_baht_per_ton")
         unit_str = "บาท/กก."
 
-    valid_prices = sub[price_col].dropna()
-    if valid_prices.empty:
-        return {"has_data": False, "message": f"ไม่พบตัวเลขราคาที่สมบูรณ์สำหรับ '{crop_name}'"}
+    if price_col not in sub.columns:
+        empty_result["message"] = f"ไม่พบคอลัมน์ราคาสำหรับ {clean_crop}"
+        return empty_result
 
-    latest_val = float(valid_prices.iloc[-1])
+    # 5. Extract numeric prices safely
+    numeric_prices = pd.to_numeric(sub[price_col], errors="coerce")
+    valid_mask = numeric_prices.notna() & (numeric_prices > 0)
+    valid_sub = sub[valid_mask].copy()
+
+    if valid_sub.empty:
+        empty_result["message"] = f"ไม่พบตัวเลขราคาที่สมบูรณ์สำหรับ '{clean_crop}'"
+        return empty_result
+
+    valid_prices = pd.to_numeric(valid_sub[price_col], errors="coerce").values
+
+    latest_val = float(valid_prices[-1])
     min_val = float(valid_prices.min())
     max_val = float(valid_prices.max())
     mean_val = float(valid_prices.mean())
 
-    # Calculate WoW change
+    # 6. Calculate WoW change
     wow_change = 0.0
     wow_pct = 0.0
     if len(valid_prices) >= 2:
-        prev_val = float(valid_prices.iloc[-2])
-        wow_change = round(latest_val - prev_val, 2)
-        wow_pct = round((wow_change / prev_val) * 100.0, 2) if prev_val > 0 else 0.0
+        prev_val = float(valid_prices[-2])
+        if prev_val > 0:
+            wow_change = round(latest_val - prev_val, 2)
+            wow_pct = round((wow_change / prev_val) * 100.0, 2)
 
-    # Calculate MoM change (approx 4 weeks back)
+    # 7. Calculate MoM change (approx 4 weeks back)
     mom_change = 0.0
     mom_pct = 0.0
     if len(valid_prices) >= 5:
-        prev_month_val = float(valid_prices.iloc[-5])
-        mom_change = round(latest_val - prev_month_val, 2)
-        mom_pct = round((mom_change / prev_month_val) * 100.0, 2) if prev_month_val > 0 else 0.0
+        prev_month_val = float(valid_prices[-5])
+        if prev_month_val > 0:
+            mom_change = round(latest_val - prev_month_val, 2)
+            mom_pct = round((mom_change / prev_month_val) * 100.0, 2)
 
-    latest_year = int(sub["year"].iloc[-1])
-    latest_month = int(sub["month"].iloc[-1])
-    latest_week = int(sub["week"].iloc[-1])
+    # 8. Safely parse latest period without raising TypeError
+    last_row = valid_sub.iloc[-1]
+    y_raw = last_row.get("year")
+    m_raw = last_row.get("month")
+    w_raw = last_row.get("week")
+
+    def safe_int_str(val: Any) -> Optional[int]:
+        if val is None or pd.isna(val):
+            return None
+        try:
+            return int(float(val))
+        except (ValueError, TypeError):
+            return None
+
+    y_int = safe_int_str(y_raw)
+    m_int = safe_int_str(m_raw)
+    w_int = safe_int_str(w_raw)
+
+    if w_int is not None and m_int is not None and y_int is not None:
+        latest_period = f"สัปดาห์ที่ {w_int} เดือน {m_int} ปี พ.ศ. {y_int}"
+    elif m_int is not None and y_int is not None:
+        latest_period = f"เดือน {m_int} ปี พ.ศ. {y_int}"
+    elif y_int is not None:
+        latest_period = f"ปี พ.ศ. {y_int}"
+    else:
+        latest_period = "ข้อมูลล่าสุด"
 
     return {
         "has_data": True,
-        "product": crop_name,
+        "product": clean_crop,
         "native_unit": native_unit,
         "latest_price": latest_val,
         "min_price": min_val,
@@ -1052,8 +1156,8 @@ def compute_price_summary_metrics(
         "wow_pct": wow_pct,
         "mom_change": mom_change,
         "mom_pct": mom_pct,
-        "latest_period": f"สัปดาห์ที่ {latest_week} เดือน {latest_month} ปี พ.ศ. {latest_year}",
+        "latest_period": latest_period,
         "frequency": "รายสัปดาห์ (Weekly)",
         "data_source": "สำนักงานเศรษฐกิจการเกษตร (สศก.) & NABC",
-        "num_records": len(sub)
+        "num_records": len(valid_sub)
     }

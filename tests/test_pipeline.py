@@ -946,6 +946,65 @@ class TestDecisionIntelligenceAndMapLayers:
         assert metrics_partial["has_data"] is True
         assert "มันสำปะหลัง" in metrics_partial["product"]
 
+    def test_compute_price_summary_metrics_defensive_null_safety(self):
+        from src.analytics import compute_price_summary_metrics, compare_production_cost_and_price
+
+        # 1. Null / None inputs
+        m_none = compute_price_summary_metrics(None, None)
+        assert m_none["has_data"] is False
+        assert isinstance(m_none["latest_price"], (int, float))
+
+        # 2. Empty DataFrame
+        m_empty = compute_price_summary_metrics(pd.DataFrame(), "ข้าว")
+        assert m_empty["has_data"] is False
+
+        # 3. None or non-string crop_name
+        df_sample = pd.DataFrame({
+            "product": ["ข้าวเปลือก", "ข้าวเปลือก"],
+            "native_price": [12.0, 12.5],
+            "native_unit": ["บาท/กก.", "บาท/กก."],
+            "year": [2567, 2567],
+            "month": [1, 1],
+            "week": [1, 2]
+        })
+        m_null_crop = compute_price_summary_metrics(df_sample, None)
+        assert m_null_crop["has_data"] is False
+
+        # 4. DataFrame with None/NaN in year, month, week (prevents TypeError: int(None))
+        df_null_dates = pd.DataFrame({
+            "product": ["ข้าวเปลือก", "ข้าวเปลือก"],
+            "native_price": [12.0, 12.5],
+            "native_unit": ["บาท/กก.", "บาท/กก."],
+            "year": [2567, None],
+            "month": [1, np.nan],
+            "week": [1, None]
+        })
+        m_dates = compute_price_summary_metrics(df_null_dates, "ข้าวเปลือก")
+        assert m_dates["has_data"] is True
+        assert isinstance(m_dates["latest_period"], str)
+
+        # 5. Crop name containing regex special characters (e.g. parentheses)
+        df_regex = pd.DataFrame({
+            "product": ["กาแฟ (โรบัสต้า)"],
+            "native_price": [85.0],
+            "native_unit": ["บาท/กก."],
+            "year": [2567],
+            "month": [5],
+            "week": [1]
+        })
+        m_regex = compute_price_summary_metrics(df_regex, "กาแฟ (โรบัสต้า)")
+        assert m_regex["has_data"] is True
+        assert m_regex["latest_price"] == 85.0
+
+        # 6. Extra arguments and kwargs compatibility
+        m_extra = compute_price_summary_metrics(df_regex, "กาแฟ (โรบัสต้า)", unit_mode="native", extra_param=123)
+        assert m_extra["has_data"] is True
+
+        # 7. compare_production_cost_and_price defensive safety
+        res_cost = compare_production_cost_and_price(None, None, "พืชไม่มี")
+        assert res_cost["has_data"] is False
+
+
     def test_all_tab_maps_generation(self):
         from src.data_loader import (
             load_agriculture_data, load_spatial_rain_data, load_provincial_temp_data,
